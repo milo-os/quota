@@ -13,7 +13,7 @@ includes:
   # Must set TASK_X_REMOTE_TASKFILES=1 to use this feature.
   test-infra:
     taskfile: https://raw.githubusercontent.com/datum-cloud/test-infra/{{.TEST_INFRA_REPO_REF}}/Taskfile.yml
-    checksum: a1cf6063def6ee21ba42f8a0818127c92a9a5c313c293387f2294e42480dd3d5
+    checksum: 9914619e294ec8a431d490b13ebb2103f5114b464227cf4fb3f967c3dc81fbdd
     vars:
       REPO_REF: "{{.TEST_INFRA_REPO_REF}}"
   # Grafonnet dashboard build pipeline. Invoke from the repo root with:

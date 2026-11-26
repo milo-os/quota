@@ -121,6 +121,9 @@ jobs:
         if: failure()
         run: |
           kubectl -n quota-system get pods,helmreleases -o wide || true
+          kubectl -n nats-system get pods,helmreleases,helmrepositories -o wide || true
+          kubectl -n nats-system describe helmrelease nats | tail -40 || true
+          kubectl -n flux-system logs deploy/helm-controller --tail=50 || true
           kubectl -n quota-system logs -l app=quota-apiserver --tail=200 || true
           kubectl -n quota-system logs -l app=quota-controller-manager --tail=200 || true
           kubectl get quotadefinitions,claimcreationpolicies,grantcreationpolicies || true

@@ -78,6 +78,12 @@ REPO=$(cd "$LOAD_DIR/../.." && pwd -P)
 pids=()
 cleanup() {
   for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+  # Wait for them to exit so a sweep started right after finds its ports
+  # free (kube-apiserver takes a few seconds to shut down).
+  for p in "${pids[@]}"; do
+    for _ in $(seq 1 300); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+    kill -9 "$p" 2>/dev/null || true
+  done
   if [ -n "${PG_DATA:-}" ]; then "$PG_BIN/pg_ctl" -D "$PG_DATA" -m immediate stop >/dev/null 2>&1 || true; fi
 }
 trap cleanup EXIT
