@@ -1,0 +1,190 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: quota-pre-created-buckets
+spec:
+  description: |
+    Tests that allowance buckets are pre-created when QuotaGrants become active,
+    allowing consumers to see their quota limits immediately without waiting for claims.
+
+    This test verifies:
+    - QuotaBuckets are pre-created when QuotaGrants become active
+    - Pre-created buckets have the correct spec and labels
+    - Pre-created buckets show accurate limits from grants
+    - Claims can use pre-created buckets successfully
+    - Multiple grants contribute to the same bucket's limit
+
+  steps:
+    # Setup base quota infrastructure
+    - name: setup-base-infrastructure
+      description: |
+        Register resource types in the quota system and verify they become active.
+      try:
+        - description: Create QuotaDefinition for projects
+          create:
+            file: 01-resource-registration.yaml
+        - description: Wait for QuotaDefinition to become active
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: pre-created-test-projects-per-org
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - description: Create QuotaDefinition for CPU
+          create:
+            file: 02-resource-registration-cpu.yaml
+        - description: Wait for CPU QuotaDefinition to become active
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: pre-created-test-cpu-per-org
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    # Create test namespace
+    - name: setup-test-namespace
+      description: |
+        Create a Namespace that will receive quota grants.
+      try:
+        - description: Create test Namespace
+          create:
+            file: 03-test-namespace.yaml
+        - description: Wait for Namespace to be active
+          wait:
+            apiVersion: v1
+            kind: Namespace
+            name: quota-e2e-pre-created
+            timeout: 30s
+            for:
+              jsonPath:
+                path: '{.status.phase}'
+                value: Active
+
+    # Create first resource grant - this should trigger bucket pre-creation
+    - name: create-first-resource-grant
+      description: |
+        Create a QuotaGrant that allocates resources to the Organization.
+        This should trigger pre-creation of QuotaBuckets.
+      try:
+        - description: Create QuotaGrant with multiple resource types
+          create:
+            file: 04-resource-grant.yaml
+        - description: Wait for QuotaGrant to become active
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaGrant
+            name: pre-created-test-org-grant-1
+            namespace: quota-e2e-pre-created
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    # Verify buckets were pre-created
+    - name: verify-buckets-pre-created
+      description: |
+        Verify that QuotaBuckets were pre-created for both resource types
+        when the grant became active, without requiring any claims.
+      try:
+        - description: Verify project bucket exists
+          assert:
+            timeout: 60s
+            file: assertions/assert-project-bucket.yaml
+        - description: Verify CPU bucket exists
+          assert:
+            timeout: 60s
+            file: assertions/assert-cpu-bucket.yaml
+
+    # Create additional grant to test aggregation
+    - name: create-additional-grant
+      description: |
+        Create an additional QuotaGrant for the same consumer and resource types.
+        The existing buckets should be updated with new limits.
+      try:
+        - description: Create second QuotaGrant
+          create:
+            file: 05-additional-grant.yaml
+        - description: Wait for second QuotaGrant to become active
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaGrant
+            name: pre-created-test-org-grant-2
+            namespace: quota-e2e-pre-created
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    # Verify buckets show aggregated limits
+    - name: verify-aggregated-limits
+      description: |
+        Verify that the pre-created buckets now show aggregated limits
+        from both QuotaGrants.
+      try:
+        - description: Verify project bucket has aggregated limits
+          assert:
+            timeout: 60s
+            file: assertions/assert-project-bucket-aggregated.yaml
+        - description: Verify CPU bucket has aggregated limits
+          assert:
+            timeout: 60s
+            file: assertions/assert-cpu-bucket-aggregated.yaml
+
+    # Test that claims can use pre-created buckets
+    - name: test-claim-with-pre-created-bucket
+      description: |
+        Create a QuotaClaim and verify it successfully uses the pre-created bucket.
+        The ConfigMap referenced by the claim's resourceRef must exist before the claim
+        is created, otherwise the ownership controller will reap it as an orphan.
+      try:
+        - description: Create ConfigMap referenced by the claim's resourceRef
+          create:
+            file: test-data/project-configmap.yaml
+        - description: Create QuotaClaim for projects
+          create:
+            file: test-data/project-claim.yaml
+        - description: Wait for QuotaClaim to be granted
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaClaim
+            name: pre-created-test-project-claim
+            namespace: quota-e2e-pre-created
+            timeout: 30s
+            for:
+              condition:
+                name: Granted
+                value: 'True'
+        - description: Verify claim was granted using pre-created bucket
+          assert:
+            timeout: 60s
+            file: assertions/assert-claim-granted.yaml
+
+    # Verify bucket shows usage from claim
+    - name: verify-bucket-usage
+      description: |
+        Verify that the pre-created bucket correctly shows usage from the claim.
+      try:
+        - description: Verify project bucket shows allocated resources
+          assert:
+            timeout: 60s
+            file: assertions/assert-bucket-with-usage.yaml
+
+    # Clean up the test namespace
+    - name: cleanup-test-namespace
+      description: |
+        Delete the test Namespace to clean up test state.
+      try:
+        - description: Delete test namespace
+          delete:
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: quota-e2e-pre-created

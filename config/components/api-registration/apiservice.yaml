@@ -1,0 +1,19 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.quota.miloapis.com
+  annotations:
+    # cert-manager's cainjector fills spec.caBundle from the quota CA
+    # (config/components/cert-manager-ca), which also issues the apiserver's
+    # serving certificate. The APIService reports Available only after the
+    # CA is injected.
+    cert-manager.io/inject-ca-from: quota-system/quota-ca
+spec:
+  service:
+    name: quota-apiserver
+    namespace: quota-system
+    port: 443
+  group: quota.miloapis.com
+  version: v1alpha1
+  groupPriorityMinimum: 1000
+  versionPriority: 15

@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-valid-feature-definition
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Feature"
+  resourceType: "test.validation.datumapis.com/feature-resources"
+  description: "Valid feature definition for validation tests"
+  baseUnit: "feature"
+  displayUnit: "features"
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: ""
+      kind: ConfigMap

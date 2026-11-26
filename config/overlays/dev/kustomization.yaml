@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: quota-system
+
+# Base resources (API server, service, RBAC, etc.)
+resources:
+  - ../../base
+  - anonymous-rbac.yaml     # Dev-only: anonymous access for testing
+
+components:
+  - ../../components/namespace
+  - ../../components/api-registration
+  - ../../components/cert-manager-ca
+  - ../../components/etcd                   # Single-node etcd for quota storage
+  - ../../components/nats-streams           # NATS JetStream streams and consumers
+  # Observability wiring (ServiceMonitors + Grafana dashboard). Requires
+  # prometheus-operator CRDs and the Grafana Operator, which ship with the
+  # test-infra observability stack. Install it first via:
+  #   task dev:observability
+  - ../../components/observability
+  - ../../components/test-infra-access
+  - ../../components/enforcement-webhook
+
+# Image overrides for dev environment
+images:
+  - name: ghcr.io/datum-cloud/quota
+    newName: ghcr.io/datum-cloud/quota
+    newTag: dev
+
+# Patches specific to dev environment
+patches:
+  - path: patches/deployment-patch.yaml
+
+labels:
+  # Note: includeSelectors is false because operators (etcd) create pods
+  # without kustomize labels, causing service selector mismatches
+  - includeSelectors: false
+    includeTemplates: true
+    pairs:
+      environment: dev

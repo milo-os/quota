@@ -1,0 +1,111 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: etcd
+  namespace: quota-system
+spec:
+  interval: 5m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: etcd
+      # Pinned exactly; bump deliberately (renovate) after checking the
+      # image below still works with the chart.
+      version: 12.0.18
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: quota-system
+      interval: 1h
+
+  values:
+    # Bitnami stopped publishing free images under docker.io/bitnami in
+    # 2025; the last builds live, frozen and unpatched, in
+    # docker.io/bitnamilegacy. The chart refuses images outside its own
+    # repository unless allowInsecureImages is set; the flag only turns off
+    # that repository-name check, not TLS or signature verification. The
+    # image is pinned by digest so the frozen tag cannot change under us.
+    # This component is for dev and standalone use: production should run
+    # its own etcd (or a maintained image) and drop this component.
+    global:
+      security:
+        allowInsecureImages: true
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/etcd
+      tag: 3.6.4-debian-12-r4
+      digest: sha256:6bae418245780e147d1300fede91415e3423403fdd367d598d54dc31deb6d5a6
+
+    # Single replica for dev environment
+    replicaCount: 1
+
+    # Authentication disabled for simplicity in dev
+    auth:
+      rbac:
+        create: false
+      token:
+        enabled: false
+
+    # Resource limits appropriate for dev
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        # Bumped from 200m to 2000m alongside the apiserver limit bump so
+        # the etcd-vs-postgres comparison in round-7 perf runs is fair:
+        # both backends need to be CFS-unconstrained for the numbers to
+        # reflect real backend behavior rather than cgroup throttling.
+        cpu: 2000m
+        memory: 256Mi
+
+    # Persistence configuration
+    persistence:
+      enabled: true
+      size: 1Gi
+
+    # Service configuration to match expected DNS name
+    service:
+      type: ClusterIP
+      ports:
+        client: 2379
+        peer: 2380
+
+    # Expose etcd's /metrics endpoint (server-side metrics: has_leader,
+    # db_total_size, leader_changes_seen_total, disk_wal_fsync, etc.).
+    # The chart-provided ServiceMonitor is enabled because it is the only
+    # selector that actually matches the metrics Service the chart emits
+    # (the selector uses `app.kubernetes.io/name=etcd` together with the
+    # chart's dynamic release labels and the `metrics` port name, which a
+    # hand-written ServiceMonitor in this repo cannot reliably reproduce).
+    # The previous in-repo `quota-etcd` ServiceMonitor matched zero
+    # endpoints; see config/components/observability/servicemonitors/.
+    #
+    # TODO(observability): if the etcd dashboard row stays empty in dev,
+    # the likely failure modes are (a) the Prometheus Operator instance
+    # installed by test-infra filters ServiceMonitors by namespace, or
+    # (b) the chart-emitted ServiceMonitor lacks the `monitoring: "true"`
+    # label used by other scrape targets. In that case add
+    # `metrics.serviceMonitor.namespace` or `metrics.serviceMonitor.labels`
+    # here instead of re-introducing a hand-rolled ServiceMonitor.
+    metrics:
+      enabled: true
+      podAnnotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2381"
+      serviceMonitor:
+        enabled: true
+
+  # Install configuration
+  install:
+    crds: CreateReplace
+    createNamespace: false
+
+  # Upgrade configuration
+  upgrade:
+    crds: CreateReplace
+
+  # Uninstall configuration
+  uninstall:
+    keepHistory: false

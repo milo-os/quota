@@ -1,0 +1,16 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: manual-claim-test-grant
+  namespace: quota-e2e-manual-claim
+  labels:
+    test.miloapis.com/scenario: "manual-claim-preservation"
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: quota-e2e-manual-claim
+  allowances:
+    - resourceType: "test.manual-claim.miloapis.com/configmaps"
+      buckets:
+        - amount: 10

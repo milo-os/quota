@@ -1,0 +1,35 @@
+@startuml architecture-container
+!$NEW_C4_STYLE = 1
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+!include datum-theme.puml
+
+title Edge-delegated Quota — Containers
+
+Person(operator, "Platform Operator", "Manages grants & definitions")
+System_Ext(workload, "Edge Workload", "Claims quota for a local service")
+
+System_Boundary(edge, "Edge Cluster (Location Control Plane)") {
+  Container(edge_api, "Edge Quota API Server", "Go, aggregated apiserver", "Serves QuotaClaim on a plain store. No grants, buckets, or Postgres. Seeds Granted=Pending / Forwarded=False on create")
+  Container(edge_fwd, "Forwarding Controller", "Go, controller-runtime", "Creates the mirror hub claim (idempotent name), mirrors status back, owns the hub-release finalizer. Emits hub_sync_age metric")
+  ContainerDb(edge_store, "etcd", "Local store", "Local QuotaClaim objects + status only")
+}
+
+System_Boundary(hub, "Hub Cluster") {
+  Container(hub_api, "Hub Quota API Server", "Go, aggregated apiserver", "Serves QuotaDefinition/Grant/Bucket/Claim. Runs the synchronous Postgres allocator inline with claim CREATE/DELETE")
+  Container(hub_release, "Decommission-Release Controller", "Go", "On an authoritative edge-deregistration event, releases all hub claims labelled for that edge. Never acts on a liveness timeout")
+  ContainerDb(postgres, "Postgres", "Relational store", "Quota ledger of record: buckets, allocations")
+}
+
+System_Ext(registry, "Edge Registry", "Authoritative edge lifecycle; emits decommission events")
+
+Rel_D(workload, edge_api, "Create / Watch QuotaClaim", "HTTPS")
+Rel_D(edge_api, edge_store, "Persists claim objects")
+Rel_U(edge_fwd, edge_api, "Watch claims, mirror status", "watch")
+Rel_R(edge_fwd, hub_api, "Create / Delete mirror claim; watch verdict", "HTTPS (hub kubeconfig)")
+Rel_D(hub_api, postgres, "Allocation transaction", "SQL")
+Rel_R(hub_release, hub_api, "Release claims on decommission", "delete")
+Rel_D(registry, hub_release, "Edge decommissioned", "event")
+Rel_D(operator, hub_api, "Manage definitions & grants", "HTTPS")
+
+SHOW_LEGEND()
+@enduml

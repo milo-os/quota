@@ -1,0 +1,166 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: quota-definition-validation
+spec:
+  description: |
+    End-to-end tests for QuotaDefinition validation including:
+    - OpenAPI schema validation (required fields, patterns, constraints)
+    - CEL immutability validation
+    - Admission plugin duplicate detection in claimingResources
+    - Cross-resource duplicate detection via admission plugin
+
+  steps:
+    - name: create-valid-definition
+      description: Create a valid QuotaDefinition and verify it becomes Active
+      try:
+        - create:
+            file: test-data/valid-definition.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: test-valid-definition
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - assert:
+            file: assertions/assert-valid-definition.yaml
+
+    - name: create-valid-feature-definition
+      description: Verify that type=Feature is accepted and reaches Active=True
+      try:
+        - create:
+            file: test-data/valid-feature-definition.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: test-valid-feature-definition
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    - name: test-missing-required-fields
+      description: Verify that QuotaDefinitions without required fields are rejected
+      try:
+        - create:
+            file: test-data/missing-required-fields.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'spec.resourceType')): true
+
+    - name: test-invalid-type-enum
+      description: Verify that invalid enum values for type field are rejected
+      try:
+        - create:
+            file: test-data/invalid-type-enum.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'spec.type')): true
+
+    - name: test-invalid-conversion-factor
+      description: Verify that unitConversionFactor below minimum value is rejected
+      try:
+        - create:
+            file: test-data/invalid-conversion-factor.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'unitConversionFactor')): true
+
+    - name: test-duplicate-claiming-resources
+      description: Verify that duplicate entries in claimingResources array are rejected
+      try:
+        - create:
+            file: test-data/duplicate-claiming-resources.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'duplicate claiming resource')): true
+
+    - name: test-cross-resource-duplicate
+      description: Verify that registering the same resourceType twice across different objects is rejected
+      try:
+        # First definition should succeed
+        - create:
+            file: test-data/first-definition.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: test-first-definition
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        # Second definition with same resourceType should fail
+        - create:
+            file: test-data/duplicate-resource-type.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'already registered')): true
+
+    - name: test-immutable-resource-type
+      description: Verify that resourceType field cannot be modified after creation (CEL validation)
+      try:
+        - create:
+            file: test-data/definition-to-update.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: test-immutable-definition
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - patch:
+            file: test-data/patch-resource-type.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'spec.resourceType is immutable')): true
+
+    - name: test-immutable-consumer-type
+      description: Verify that consumerType field cannot be modified after creation (CEL validation)
+      try:
+        - patch:
+            file: test-data/patch-consumer-type.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'spec.consumerType is immutable')): true
+
+    - name: test-immutable-type
+      description: Verify that type field cannot be modified after creation (CEL validation)
+      try:
+        - patch:
+            file: test-data/patch-type.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'spec.type is immutable')): true
+
+    - name: test-valid-update
+      description: Verify that mutable fields can be successfully updated
+      try:
+        - patch:
+            file: test-data/patch-mutable-fields.yaml
+        - assert:
+            file: assertions/assert-updated-definition.yaml
+
+    - name: test-max-claiming-resources
+      description: Verify that exceeding maximum claimingResources array size is rejected
+      try:
+        - create:
+            file: test-data/max-claiming-resources.yaml
+            expect:
+              - check:
+                  ($error != null): true
+                  (contains($error, 'claimingResources')): true

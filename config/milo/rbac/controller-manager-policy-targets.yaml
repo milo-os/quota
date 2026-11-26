@@ -1,0 +1,27 @@
+# Read access for the quota controller-manager to the kinds Milo's quota
+# policies trigger on. The label aggregates these rules into the
+# quota-controller-manager-policy-targets ClusterRole from config/base, so
+# the controller-manager needs no wildcard read access.
+#
+# Keep this in step with config/milo/claim-policies (ConfigMap, Secret,
+# Note, ClusterNote) and with the GrantCreationPolicies Milo deploys, which
+# trigger on Milo's consumer kinds (Organization, Project). Aggregation
+# needs the clusterrole-aggregation controller in the cluster the
+# controller-manager reads; where it does not run, bind this ClusterRole to
+# the quota-system/quota-controller-manager ServiceAccount directly.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-manager-milo-policy-targets
+  labels:
+    quota.miloapis.com/aggregate-to-controller-manager: "true"
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["notes.miloapis.com"]
+    resources: ["notes", "clusternotes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["resourcemanager.miloapis.com"]
+    resources: ["organizations", "projects"]
+    verbs: ["get", "list", "watch"]

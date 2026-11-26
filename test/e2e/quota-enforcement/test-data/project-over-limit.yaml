@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-over-limit-project
+  namespace: edge-test-quota-enforcement-org
+  labels:
+    test.miloapis.com/quota: "true"
+    test.miloapis.com/scenario: "over-limit"
+data:
+  parent: "edge-test-quota-enforcement-org"
+  description: "Project that should fail due to quota enforcement"

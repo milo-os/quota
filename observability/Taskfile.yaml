@@ -1,0 +1,98 @@
+version: '3'
+
+# Observability build tasks for the quota service.
+#
+# This Taskfile compiles Grafonnet dashboard sources into JSON and drops the
+# result into config/components/observability/dashboards/generated/ where the
+# kustomize configMapGenerator picks them up. Follows the same pattern used
+# by the datum-cloud/activity service.
+#
+# Usage (from observability/):
+#   task install-tooling  # Install go-jsonnet and jsonnet-bundler (one-time)
+#   task init             # Run jb install to vendor grafonnet (one-time)
+#   task build-dashboards # Compile *.jsonnet -> generated/*.json
+#
+# Or from the repo root:
+#   task observability:build-dashboards
+
+vars:
+  # Resolve relative to this Taskfile's directory (observability/) so it
+  # works whether `task` is invoked from the repo root via an include or
+  # directly with `task -d observability`. ROOT_DIR is not reliable here
+  # because it shifts based on how task is invoked.
+  OUTPUT_DIR: "{{.TASKFILE_DIR}}/../config/components/observability/dashboards/generated"
+  # We hard-pin to go-jsonnet rather than $(command -v jsonnet). The C++
+  # jsonnet (brew) interpreter effectively infinite-loops on grafonnet's
+  # deeply-nested generated trees; go-jsonnet compiles the same input in
+  # under a second. Never use the brew binary for this project.
+  JSONNET_BIN:
+    sh: echo "$(go env GOPATH)/bin/jsonnet"
+  JB_BIN:
+    sh: echo "$(go env GOPATH)/bin/jb"
+
+tasks:
+  install-tooling:
+    desc: Install go-jsonnet and jsonnet-bundler into $GOPATH/bin
+    status:
+      - test -x "{{.JSONNET_BIN}}"
+      - test -x "{{.JB_BIN}}"
+    cmds:
+      - go install github.com/google/go-jsonnet/cmd/jsonnet@latest
+      - go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
+
+  init:
+    desc: Vendor grafonnet dependencies
+    deps: [install-tooling]
+    dir: "{{.TASKFILE_DIR}}"
+    status:
+      - test -d vendor/grafonnet-v11.4.0
+    cmds:
+      - '{{.JB_BIN}} install'
+
+  build-dashboards:
+    desc: Compile Jsonnet dashboard sources to JSON
+    deps: [init]
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - |
+        set -e
+        echo "Building Grafana dashboards from Jsonnet..."
+        mkdir -p "{{.OUTPUT_DIR}}"
+        for file in dashboards/*.jsonnet; do
+          [ -f "$file" ] || continue
+          output=$(basename "$file" .jsonnet).json
+          echo "  $file -> generated/$output"
+          "{{.JSONNET_BIN}}" -J vendor "$file" > "{{.OUTPUT_DIR}}/$output"
+        done
+        echo "Dashboards built into {{.OUTPUT_DIR}}"
+
+  verify-generated:
+    desc: Fail if the committed generated JSON is out of sync with the Jsonnet source
+    deps: [init]
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - |
+        set -e
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        echo "Rebuilding dashboards to temporary directory..."
+        for file in dashboards/*.jsonnet; do
+          [ -f "$file" ] || continue
+          output=$(basename "$file" .jsonnet).json
+          "{{.JSONNET_BIN}}" -J vendor "$file" > "$tmp/$output"
+        done
+        echo "Comparing against {{.OUTPUT_DIR}}..."
+        if ! diff -q "$tmp" "{{.OUTPUT_DIR}}" >/dev/null 2>&1; then
+          echo "ERROR: generated dashboards are out of sync with source."
+          echo "Run 'task observability:build-dashboards' and commit the result."
+          diff -ruN "{{.OUTPUT_DIR}}" "$tmp" | head -60 || true
+          exit 1
+        fi
+        echo "Generated dashboards are up to date."
+
+  clean:
+    desc: Remove vendored jsonnet libraries and generated dashboards
+    dir: "{{.TASKFILE_DIR}}"
+    cmds:
+      - rm -rf vendor
+      - rm -rf "{{.OUTPUT_DIR}}"

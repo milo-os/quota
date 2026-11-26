@@ -1,0 +1,7 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-immutable-definition
+spec:
+  # Attempting to change immutable resourceType field
+  resourceType: "test.immutable.datumapis.com/changed"

@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-additional-project-1
+  namespace: edge-test-quota-enforcement-org
+  labels:
+    test.miloapis.com/scenario: "enforcement-edge-cases"
+data:
+  parent: "edge-test-quota-enforcement-org"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test-additional-project-2
+  namespace: edge-test-quota-enforcement-org
+  labels:
+    test.miloapis.com/scenario: "enforcement-edge-cases"
+data:
+  parent: "edge-test-quota-enforcement-org"

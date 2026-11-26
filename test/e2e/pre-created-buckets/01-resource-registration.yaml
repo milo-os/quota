@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: pre-created-test-projects-per-org
+spec:
+  resourceType: "pre-created-test/projects-per-org"
+  consumerType:
+    kind: Namespace
+    apiGroup: ""
+  type: Entity
+  description: "Number of projects allowed per namespace (pre-created bucket test)"
+  baseUnit: project
+  displayUnit: project
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: ""
+      kind: ConfigMap

@@ -1,0 +1,25 @@
+@startuml architecture-context
+!$NEW_C4_STYLE = 1
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+!include datum-theme.puml
+
+title Edge-delegated Quota — System Context
+
+Person(operator, "Platform Operator", "Manages QuotaDefinitions and QuotaGrants on the hub")
+
+System_Ext(workload, "Edge Workload", "Services in a location/edge cluster that need to claim quota")
+
+System_Boundary(quota, "Quota Service") {
+  System(edge_quota, "Edge Quota Service", "Exposes the QuotaClaim API at the edge; holds no grants and delegates allocation to the hub")
+  System(hub_quota, "Hub Quota Service", "Single ledger of record: definitions, grants, buckets, and the real allocation transaction")
+}
+
+System_Ext(postgres, "Postgres", "Hub ledger of record storage")
+
+Rel_D(workload, edge_quota, "Create / Watch QuotaClaim", "HTTPS")
+Rel_R(edge_quota, hub_quota, "Delegates claim, mirrors status", "HTTPS (hub kubeconfig)")
+Rel_D(operator, hub_quota, "Manage definitions & grants", "HTTPS")
+Rel_D(hub_quota, postgres, "Allocation transaction", "SQL")
+
+SHOW_LEGEND()
+@enduml

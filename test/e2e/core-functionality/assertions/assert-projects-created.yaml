@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: core-test-basic-project-1
+    namespace: quota-e2e-core-basic
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: core-test-basic-project-2
+    namespace: quota-e2e-core-basic

@@ -1,0 +1,33 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: ClaimCreationPolicy
+metadata:
+  name: test-invalid-missing-resource-policy
+  labels:
+    test.miloapis.com/quota: "true"
+    test.miloapis.com/scenario: "invalid-missing-resource"
+spec:
+  disabled: false
+  trigger:
+    resource:
+      apiVersion: "v1"
+      kind: "ConfigMap"
+    constraints:
+      - expression: 'has(trigger.metadata.labels) && "test.miloapis.com/invalid-missing-resource" in trigger.metadata.labels'
+  target:
+    resourceClaimTemplate:
+      metadata:
+        namespace: "{{trigger.metadata.namespace}}"
+        generateName: "test-project-{{trigger.metadata.name}}-quota-claim-"
+        labels:
+          quota.miloapis.com/auto-created: "true"
+          quota.miloapis.com/test: "true"
+        annotations:
+          quota.miloapis.com/description: "Test quota claim for resource creation"
+      spec:
+        consumerRef:
+          apiGroup: ""
+          kind: "Namespace"
+          name: "{{trigger.metadata.namespace}}"
+        requests:
+          - resourceType: "nonexistent.miloapis.com/projects"
+            amount: 1

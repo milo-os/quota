@@ -1,0 +1,141 @@
+# Quota enforcement webhook. Read README.md in this directory before
+# enabling it: the kube-apiserver must authenticate to the webhook, and
+# enforcement is opt-in.
+#
+# Validating, not Mutating: the plugin creates a QuotaClaim as a side effect.
+# Validating webhooks run after every mutating webhook and after schema
+# validation, so a claim is only created for an object the apiserver has
+# otherwise accepted. A later validating webhook can still reject the
+# request; the resulting orphaned auto-created claim is removed by the
+# controller-manager's QuotaClaim ownership controller.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: quota-enforcement
+  annotations:
+    # cert-manager's cainjector copies the quota CA (config/components/
+    # cert-manager-ca) into every webhook's caBundle, so the kube-apiserver
+    # verifies the quota apiserver's serving certificate.
+    cert-manager.io/inject-ca-from: quota-system/quota-ca
+webhooks:
+    # Namespaced resources, in namespaces that opt in with the label
+    # quota.miloapis.com/enforcement=enabled.
+    - name: enforce.quota.miloapis.com
+      admissionReviewVersions: ["v1"]
+      # The enforcement plugin creates QuotaClaims on non-dry-run requests,
+      # so it has side effects. NoneOnDryRun tells the kube-apiserver to
+      # skip the webhook for dry-run requests (the plugin also checks this).
+      sideEffects: NoneOnDryRun
+      # Must stay strictly greater than the plugin's claim wait
+      # (--quota-enforcement-claim-timeout, 25s by default) so the plugin
+      # always answers first with a precise timeout message instead of the
+      # apiserver cutting the call off.
+      timeoutSeconds: 30
+      # Fail closed, matching Milo's in-process enforcement: if the quota
+      # apiserver cannot be reached, creates of matched resources are
+      # rejected rather than admitted without a quota check. The opt-in
+      # namespaceSelector below keeps an outage from reaching namespaces
+      # that never asked for enforcement (cert-manager, flux-system,
+      # monitoring, ...). Run more than one apiserver replica; base ships
+      # two and a PodDisruptionBudget.
+      failurePolicy: Fail
+      matchPolicy: Equivalent
+      clientConfig:
+        service:
+          name: quota-apiserver
+          namespace: quota-system
+          path: /webhook/enforce
+          port: 443
+      rules:
+        # Broad matching inside opted-in namespaces is safe: the plugin
+        # returns immediately if no ClaimCreationPolicy exists for the GVK.
+        # Consumers can narrow this to the kinds they enforce (see
+        # config/milo/enforcement-webhook).
+        - apiGroups: ["*"]
+          apiVersions: ["*"]
+          resources: ["*"]
+          operations: ["CREATE"]
+          scope: Namespaced
+      namespaceSelector:
+        matchLabels:
+          quota.miloapis.com/enforcement: enabled
+        matchExpressions:
+          # Never enforce in the system namespaces or in quota-system itself,
+          # even if someone labels them: that would let a quota outage block
+          # the quota service's own recovery.
+          - key: kubernetes.io/metadata.name
+            operator: NotIn
+            values:
+              - kube-system
+              - kube-public
+              - kube-node-lease
+              - quota-system
+      matchConditions:
+        - name: exclude-infrastructure-resources
+          expression: >-
+            !(request.resource.group in [
+              'quota.miloapis.com',
+              'authentication.k8s.io',
+              'authorization.k8s.io',
+              'coordination.k8s.io',
+              'events.k8s.io',
+              'discovery.k8s.io'
+            ]) &&
+            !(request.resource.group == '' && request.resource.resource in ['events', 'endpoints', 'bindings'])
+
+    # Cluster-scoped resources. namespaceSelector cannot scope these (it only
+    # applies to Namespace objects themselves) and an objectSelector would
+    # let the creator skip enforcement by leaving a label off, so this
+    # webhook matches nothing until a consumer lists the cluster-scoped
+    # kinds its ClaimCreationPolicies target, for example:
+    #
+    #   - op: replace
+    #     path: /webhooks/1/rules
+    #     value:
+    #       - apiGroups: ["notes.miloapis.com"]
+    #         apiVersions: ["*"]
+    #         resources: ["clusternotes"]
+    #         operations: ["CREATE"]
+    #         scope: Cluster
+    #
+    # Claims for these land in the plugin's cluster-scoped claim namespace
+    # (--quota-cluster-scoped-claim-namespace) unless the policy pins one.
+    - name: enforce-cluster.quota.miloapis.com
+      admissionReviewVersions: ["v1"]
+      sideEffects: NoneOnDryRun
+      # See the namespaced webhook above for timeoutSeconds/failurePolicy.
+      timeoutSeconds: 30
+      failurePolicy: Fail
+      matchPolicy: Equivalent
+      clientConfig:
+        service:
+          name: quota-apiserver
+          namespace: quota-system
+          path: /webhook/enforce
+          port: 443
+      rules: []
+      matchConditions:
+        # Kept as a guard in case a consumer widens the rules.
+        - name: exclude-infrastructure-resources
+          expression: >-
+            !(request.resource.group in [
+              'quota.miloapis.com',
+              'admissionregistration.k8s.io',
+              'apiextensions.k8s.io',
+              'apiregistration.k8s.io',
+              'authentication.k8s.io',
+              'authorization.k8s.io',
+              'certificates.k8s.io',
+              'flowcontrol.apiserver.k8s.io',
+              'internal.apiserver.k8s.io',
+              'node.k8s.io',
+              'rbac.authorization.k8s.io',
+              'resource.k8s.io',
+              'scheduling.k8s.io',
+              'storage.k8s.io',
+              'storagemigration.k8s.io',
+              'networking.k8s.io'
+            ]) &&
+            !(request.resource.group == '' && request.resource.resource in ['nodes', 'persistentvolumes', 'componentstatuses']) &&
+            !(request.resource.group == '' && request.resource.resource == 'namespaces' &&
+              request.name in ['kube-system', 'kube-public', 'kube-node-lease', 'quota-system'])

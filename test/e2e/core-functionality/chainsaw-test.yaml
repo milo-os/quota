@@ -1,0 +1,213 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: quota-core-functionality
+spec:
+  description: |
+    Tests the core functionality of the quota system including resource registration,
+    claim creation policies, automatic claim generation, quota enforcement, and cleanup.
+
+    This test verifies:
+    - QuotaDefinitions become active and track claiming resources
+    - ClaimCreationPolicies configure automatic claim generation
+    - Child resources automatically create QuotaClaims when created
+    - Quota limits are enforced (resources beyond quota are denied)
+    - Denied claims are automatically cleaned up
+    - Successful claims are cleaned up when resources are deleted
+
+  steps:
+    # Setup base quota infrastructure - MUST be first
+    - name: setup-base-infrastructure
+      description: |
+        Register the 'projects-per-org' resource type in the quota system and verify it becomes active.
+        This QuotaDefinition defines what resource is being tracked and how claims are evaluated.
+      try:
+        - description: Create QuotaDefinition for projects
+          create:
+            file: 01-resource-registration.yaml
+        - description: Wait for QuotaDefinition to become active
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: core-test-projects-per-org
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - description: Verify QuotaDefinition status and configuration
+          assert:
+            file: assertions/assert-resource-registration.yaml
+
+    # Setup claim creation policy - depends on QuotaDefinition being active
+    - name: setup-claim-creation-policy
+      description: |
+        Create a ClaimCreationPolicy that automatically generates QuotaClaims when ConfigMaps are created.
+        The policy specifies which resource to claim and the parent context for quota enforcement.
+      try:
+        - description: Create ClaimCreationPolicy for automatic project claim generation
+          create:
+            file: project-creation-policy.yaml
+        - description: Wait for ClaimCreationPolicy to be ready
+          assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: ClaimCreationPolicy
+              metadata:
+                name: core-test-project-quota-policy
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+
+    # Create basic namespace for testing
+    - name: setup-basic-namespace
+      description: |
+        Create a Namespace that will serve as the quota consumer.
+        The Namespace will serve as the parent context for quota enforcement.
+      try:
+        - description: Create test Namespace
+          create:
+            file: 02-basic-quota-namespace.yaml
+        - description: Wait for Namespace to be active
+          wait:
+            apiVersion: v1
+            kind: Namespace
+            name: quota-e2e-core-basic
+            timeout: 30s
+            for:
+              jsonPath:
+                path: '{.status.phase}'
+                value: Active
+        - description: Verify Namespace was created successfully
+          assert:
+            file: assertions/assert-organization.yaml
+
+    # Create resource grant for the namespace
+    - name: create-basic-resource-grant
+      description: |
+        Create a QuotaGrant that allocates 2 projects to the Namespace.
+        This grant establishes the quota limit that will be enforced.
+      try:
+        - description: Create QuotaGrant with quota allowance
+          create:
+            file: basic-quota-grant.yaml
+        - description: Wait for QuotaGrant to become active
+          wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaGrant
+            name: core-test-basic-quota-org-grant
+            namespace: quota-e2e-core-basic
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    # Test project creation within quota limits
+    - name: test-projects-within-quota
+      description: |
+        Create 2 ConfigMaps within the quota limit (grant allows 2 projects).
+        Verify that both are created successfully and QuotaClaims are auto-generated.
+      try:
+        - description: Create 2 projects within quota limit
+          create:
+            file: test-data/projects-within-quota.yaml
+        - description: Verify first project ConfigMap exists
+          assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: core-test-basic-project-1
+                namespace: quota-e2e-core-basic
+        - description: Verify second project ConfigMap exists
+          assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: core-test-basic-project-2
+                namespace: quota-e2e-core-basic
+        - description: Verify both projects were created successfully
+          assert:
+            file: assertions/assert-projects-created.yaml
+
+    # Verify resource claims were created automatically
+    - name: verify-resource-claims
+      description: |
+        Verify that QuotaClaims were automatically created for both projects.
+        Claims should be in Granted state and linked to the QuotaGrant.
+      try:
+        - description: Verify QuotaClaims exist and are granted
+          assert:
+            timeout: 60s
+            file: assertions/assert-resource-claims.yaml
+
+    # Test basic quota enforcement - this should create a denied auto-created QuotaClaim
+    - name: test-quota-enforcement
+      description: |
+        Attempt to create a 3rd project that exceeds the quota limit.
+        The admission webhook should deny the ConfigMap creation.
+      try:
+        - description: Attempt to create project beyond quota (should fail)
+          create:
+            file: test-data/project-exceeds-quota.yaml
+            expect:
+              - check:
+                  ($error != null): true
+
+    # Wait for denied auto-created QuotaClaim to be created and then automatically deleted
+    - name: verify-denied-claim-cleanup
+      description: |
+        Verify that no QuotaClaim exists for the denied project.
+        The system should not create claims for resources that fail admission.
+      try:
+        - description: Verify no QuotaClaim exists for denied project
+          error:
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaClaim
+              namespace: quota-e2e-core-basic
+              selector: quota.miloapis.com/resource-name=core-test-exceeds-project-1
+
+    # Delete the successful projects to test automatic QuotaClaim cleanup
+    - name: delete-successful-projects
+      description: |
+        Delete the 2 successful projects to verify QuotaClaim cleanup.
+        Claims should be automatically deleted when their owning resources are removed.
+      try:
+        - description: Delete first project
+          delete:
+            ref:
+              apiVersion: v1
+              kind: ConfigMap
+              name: core-test-basic-project-1
+              namespace: quota-e2e-core-basic
+        - description: Delete second project
+          delete:
+            ref:
+              apiVersion: v1
+              kind: ConfigMap
+              name: core-test-basic-project-2
+              namespace: quota-e2e-core-basic
+
+    # Verify all QuotaClaims are automatically cleaned up
+    - name: verify-complete-cleanup
+      description: |
+        Verify that all QuotaClaims for the test scenario have been cleaned up.
+        This confirms garbage collection works correctly via owner references.
+      try:
+        - description: Verify no QuotaClaims remain for this test
+          error:
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaClaim
+              namespace: quota-e2e-core-basic
+              selector: quota.miloapis.com/test-scenario=core-functionality
+        - description: Clean up test namespace
+          delete:
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: quota-e2e-core-basic

@@ -1,0 +1,15 @@
+# DEV/CI ONLY: the trigger kinds used by the policies in test/e2e.
+# Aggregated into quota-controller-manager-policy-targets (config/base).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-manager-e2e-policy-targets
+  labels:
+    quota.miloapis.com/aggregate-to-controller-manager: "true"
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]

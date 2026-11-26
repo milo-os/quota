@@ -1,0 +1,22 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: grant-policy-test-projects-per-org
+  labels:
+    test.miloapis.com/quota: "grant-creation-policy"
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.grantpolicy.miloapis.com/projects"
+  description: "Project quota for grant creation policy testing"
+  baseUnit: "project"
+  displayUnit: "projects"
+  unitConversionFactor: 1
+  claimingResources:
+    - kind: ConfigMap
+status:
+  conditions:
+    - type: Active
+      status: "True"

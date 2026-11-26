@@ -1,0 +1,9 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-immutable-definition
+spec:
+  # Attempting to change immutable consumerType field
+  consumerType:
+    apiGroup: iam.datumapis.com
+    kind: User

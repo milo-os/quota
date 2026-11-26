@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: compute-vcpu
+spec:
+  resourceType: "compute.datumapis.com/vCPU"
+  type: "Allocation"
+  consumerType:
+    kind: Project
+    apiGroup: resourcemanager.miloapis.com
+  description: "Virtual CPU allocation quota"
+  baseUnit: "millicpu"
+  displayUnit: "vCPU"
+  unitConversionFactor: 1000
+  claimingResources:
+    - apiGroup: compute.datumapis.com
+      kind: VirtualMachine

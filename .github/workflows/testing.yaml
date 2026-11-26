@@ -1,0 +1,157 @@
+name: "Execute Golang Tests"
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  execute-tests:
+    runs-on: ubuntu-latest
+    services:
+      # Backs the Postgres integration tests (internal/storage/postgres,
+      # internal/watch and others). They skip themselves when POSTGRES_DSN
+      # is unset; QUOTA_REQUIRE_POSTGRES=1 below turns that skip into a
+      # failure, so CI cannot pass with the database unreachable.
+      # Postgres 13+ is required (tests use pg_current_xact_id()).
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: quota_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quota_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/quota_test?sslmode=disable
+      QUOTA_REQUIRE_POSTGRES: "1"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install dependencies
+        run: go mod download
+      - name: Execute golang tests
+        # -p 1: the Postgres test packages share one database and each
+        # creates/truncates the same tables, so packages must not run in
+        # parallel.
+        run: go test -p 1 -timeout 10m ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Run golangci-lint
+        # The repo has no .golangci.yml, so this runs golangci-lint's default
+        # linters, the same as `task lint`.
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          args: --timeout=10m
+
+  verify-codegen:
+    name: Verify generated code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Verify generated code is up to date
+        run: ./hack/verify-codegen.sh
+      - name: Verify the migrations ConfigMap is up to date
+        run: ./hack/update-migrations-configmap.sh --verify
+
+  e2e:
+    name: Chainsaw e2e (kind, test-infra overlay)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      QUOTA_IMAGE: ghcr.io/datum-cloud/quota:dev
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Build quota image
+        run: docker build -t "$QUOTA_IMAGE" .
+      - name: Bootstrap kind cluster (cert-manager, Flux, Kyverno) and load image
+        uses: datum-cloud/test-infra/.github/actions/kind-bootstrap@v0.6.0
+        with:
+          cluster_name: test-infra
+          images: ghcr.io/datum-cloud/quota:dev
+      - name: Install observability stack
+        # The test-infra overlay includes config/components/observability,
+        # which needs the ServiceMonitor, PrometheusRule and GrafanaDashboard
+        # CRDs. kind-bootstrap exports KUBECONFIG for later steps.
+        working-directory: test-infra
+        run: task install-observability CLUSTER_NAME=test-infra
+      - name: Install NATS
+        run: |
+          kubectl apply -k config/dependencies/nats
+          kubectl -n nats-system wait --for=condition=ready helmrelease/nats --timeout=300s
+          kubectl -n nats-system wait --for=condition=ready helmrelease/nack --timeout=300s
+      - name: Deploy quota (test-infra overlay)
+        run: |
+          kubectl apply -k config/overlays/test-infra
+          kubectl -n quota-system wait --for=condition=ready helmrelease/etcd --timeout=300s
+          kubectl -n quota-system wait --for=condition=ready pod -l app=quota-apiserver --timeout=180s
+          kubectl wait --for=condition=Available apiservice/v1alpha1.quota.miloapis.com --timeout=180s
+      - name: Install chainsaw
+        uses: kyverno/action-install-chainsaw@f2b47b97dc889c12702113753d713f01ec268de5 # v0.2.12
+        with:
+          release: v0.2.15
+      - name: Run chainsaw suites
+        run: chainsaw test test/e2e/ --config test/e2e/.chainsaw.yaml --report-format JUNIT-TEST --report-name chainsaw-report --report-path "$RUNNER_TEMP"
+      - name: Dump quota state on failure
+        if: failure()
+        run: |
+          kubectl -n quota-system get pods,helmreleases -o wide || true
+          kubectl -n quota-system logs -l app=quota-apiserver --tail=200 || true
+          kubectl -n quota-system logs -l app=quota-controller-manager --tail=200 || true
+          kubectl get quotadefinitions,claimcreationpolicies,grantcreationpolicies || true
+          kubectl get quotaclaims,quotagrants,quotabuckets -A || true
+      - name: Upload chainsaw report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chainsaw-report
+          path: ${{ runner.temp }}/chainsaw-report.xml
+          if-no-files-found: ignore
+
+  verify-dashboards:
+    name: Verify generated Grafana dashboards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify generated dashboards match Jsonnet source
+        # Installs go-jsonnet + jsonnet-bundler, vendors grafonnet, rebuilds
+        # every dashboard, and diffs the output against the committed copy
+        # under config/components/observability/dashboards/generated/. Fails
+        # the job if anyone edited a .jsonnet source without running
+        # `task observability:build-dashboards` and committing the result.
+        run: task observability:verify-generated

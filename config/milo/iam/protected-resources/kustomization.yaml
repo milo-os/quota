@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - quotadefinition.yaml
+  - quotagrant.yaml
+  - quotaclaim.yaml
+  - quotabucket.yaml
+  - grantcreationpolicy.yaml
+  - claimcreationpolicy.yaml

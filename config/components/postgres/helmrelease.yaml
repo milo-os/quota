@@ -1,0 +1,114 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: postgres
+  namespace: quota-system
+spec:
+  interval: 5m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: postgresql
+      # Pinned exactly; bump deliberately (renovate) after checking the
+      # image below still works with the chart.
+      version: 16.7.27
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami-postgres
+        namespace: quota-system
+      interval: 1h
+
+  values:
+    # Single instance for dev/test
+    architecture: standalone
+
+    # Bitnami stopped publishing free images under docker.io/bitnami in
+    # 2025; the last builds live, frozen and unpatched, in
+    # docker.io/bitnamilegacy. The chart refuses images outside its own
+    # repository unless allowInsecureImages is set; the flag only turns off
+    # that repository-name check. The image is pinned by digest so the
+    # frozen tag cannot change under us. This component is for dev and
+    # standalone use: production should use a managed or operator-run
+    # Postgres and drop this component.
+    global:
+      security:
+        allowInsecureImages: true
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/postgresql
+      tag: 17.0.0-debian-12-r5
+      digest: sha256:02468d9e9f95f1f93e39069202197fdf7b8ccc8a4f63c833da06b3adaf5a5262
+      pullPolicy: IfNotPresent
+
+    # Authentication. The postgres-credentials Secret is not part of this
+    # component: dev overlays get it from config/components/
+    # dev-postgres-credentials, other deployments create it themselves
+    # (keys: password, dsn).
+    auth:
+      username: quota
+      database: quota
+      existingSecret: postgres-credentials
+      secretKeys:
+        adminPasswordKey: password
+        userPasswordKey: password
+
+    # Primary configuration
+    primary:
+      persistence:
+        enabled: true
+        size: 1Gi
+
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          # Bumped from 500m to 2000m alongside the apiserver limit bump so
+          # the etcd-vs-postgres comparison in round-7 perf runs is fair:
+          # both backends need to be CFS-unconstrained for the numbers to
+          # reflect real backend behavior rather than cgroup throttling.
+          cpu: 2000m
+          memory: 512Mi
+
+      # Postgres tuning for the quota workload.
+      # synchronous_commit=off lets COMMIT return without waiting for WAL fsync.
+      # Trade-off: a crash within ~200ms (wal_writer_delay) of an ack can lose
+      # those transactions, but the database remains internally consistent
+      # (unlike fsync=off, which is unsafe). For dev/test on kind/colima where
+      # fsync latency is 1-5ms, this typically yields a 5-20x improvement on
+      # commit latency. The quota apiserver can tolerate this trade-off because
+      # it persists state to its own etcd companion in the dual-write topology
+      # and because the e2e tests don't model crash recovery.
+      extendedConfiguration: |
+        synchronous_commit = off
+        wal_writer_delay = 200ms
+        # Larger shared_buffers helps the cacher's initial LIST and any
+        # full-table reads (cluster-wide grant lists).
+        shared_buffers = 192MB
+        effective_cache_size = 384MB
+        # Bigger WAL segments reduce checkpoint frequency.
+        max_wal_size = 1GB
+        min_wal_size = 256MB
+        # Round-8 replica scaling: 3 apiserver replicas × 50 MaxOpenConns
+        # = 150 connections. Default 100 is too low; bump to 200.
+        max_connections = 200
+
+    # Service configuration
+    service:
+      type: ClusterIP
+      ports:
+        postgresql: 5432
+
+  # Install configuration
+  install:
+    crds: CreateReplace
+    createNamespace: false
+
+  # Upgrade configuration
+  upgrade:
+    crds: CreateReplace
+
+  # Uninstall configuration
+  uninstall:
+    keepHistory: false

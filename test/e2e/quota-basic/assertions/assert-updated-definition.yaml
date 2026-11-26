@@ -1,0 +1,26 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-immutable-definition
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  # These immutable fields should NOT have changed
+  resourceType: "test.immutable.datumapis.com/original"
+  # These mutable fields should have updated values
+  description: "Updated description - this is allowed"
+  baseUnit: "thing"
+  displayUnit: "things"
+  unitConversionFactor: 1000
+  claimingResources:
+    - apiGroup: test.datumapis.com
+      kind: TestItem
+    - apiGroup: test.datumapis.com
+      kind: AnotherTestItem
+status:
+  conditions:
+    - type: Active
+      status: 'True'
+      reason: RegistrationActive

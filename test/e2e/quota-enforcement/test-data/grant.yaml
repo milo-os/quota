@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: edge-test-quota-enforcement-org-grant
+  namespace: edge-test-quota-enforcement-org
+  labels:
+    test.datumapis.com/quota: "enforcement"
+    test.datumapis.com/scenario: "quota-enforcement"
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: edge-test-quota-enforcement-org
+  allowances:
+    - resourceType: "test.datumapis.com/edgeprojects"
+      buckets:
+        - amount: 2  # Lower limit to test enforcement

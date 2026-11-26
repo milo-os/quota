@@ -1,0 +1,22 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-duplicate-claiming
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.validation.datumapis.com/deployments"
+  description: "Duplicate claiming resources test"
+  baseUnit: "deployment"
+  displayUnit: "deployments"
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: apps
+      kind: Deployment
+    - apiGroup: apps
+      kind: StatefulSet
+    # Duplicate entry - should fail CEL validation
+    - apiGroup: apps
+      kind: Deployment

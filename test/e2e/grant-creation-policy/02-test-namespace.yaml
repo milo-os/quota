@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grant-policy-test-org
+  labels:
+    test.miloapis.com/scenario: "grant-creation-policy"
+    quota.miloapis.com/test-tier: "standard"

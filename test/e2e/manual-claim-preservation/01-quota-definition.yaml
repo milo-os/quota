@@ -1,0 +1,19 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: manual-claim-test-definition
+  labels:
+    test.miloapis.com/scenario: "manual-claim-preservation"
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.manual-claim.miloapis.com/configmaps"
+  description: "Test quota type for verifying manual claim preservation"
+  baseUnit: "configmap"
+  displayUnit: "configmaps"
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: ""
+      kind: ConfigMap

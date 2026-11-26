@@ -1,0 +1,18 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaBucket
+metadata:
+  namespace: quota-system
+  labels:
+    quota.miloapis.com/consumer-kind: Namespace
+    quota.miloapis.com/consumer-name: quota-e2e-pre-created
+spec:
+  consumerRef:
+    kind: Namespace
+    name: quota-e2e-pre-created
+  resourceType: "pre-created-test/projects-per-org"
+status:
+  limit: 3  # From first grant
+  allocated: 0  # No claims yet
+  available: 3
+  grantCount: 1
+  claimCount: 0

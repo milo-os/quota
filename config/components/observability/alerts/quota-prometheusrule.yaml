@@ -1,0 +1,168 @@
+# Alerts for the quota service. Every metric referenced here is defined in
+# internal/metrics/metrics.go, internal/storage/dual/metrics.go,
+# pkg/admission/enforcement/watch_metrics.go, or is a standard
+# kube-apiserver / controller-runtime metric. Jobs are the Service names
+# produced by the ServiceMonitors in ../servicemonitors/.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: quota
+  namespace: quota-system
+  labels:
+    app.kubernetes.io/name: quota
+    monitoring: "true"
+spec:
+  groups:
+    - name: quota.enforcement
+      rules:
+        - alert: QuotaClaimDenialRateHigh
+          # Denials are legitimate behaviour (tenant at limit); this is a
+          # signal for capacity review or a misconfigured grant, not a page.
+          expr: |
+            (
+              sum(rate(quota_enforcement_result_total{result="denied"}[10m]))
+              /
+              clamp_min(sum(rate(quota_enforcement_result_total[10m])), 0.001)
+            ) > 0.5
+            and sum(rate(quota_enforcement_result_total[10m])) > 0.1
+          for: 15m
+          labels:
+            severity: info
+          annotations:
+            summary: More than half of quota enforcement decisions are denials
+            description: "{{ $value | humanizePercentage }} of quota admission decisions were denied over the last 10m."
+        - alert: QuotaClaimLatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le) (rate(quota_claim_duration_seconds_bucket[5m]))
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Quota claim processing p99 latency above 1s
+            description: "p99 claim duration is {{ $value | humanizeDuration }}. On the postgres backend this is QuotaClaim CREATE latency in the request path; on etcd and dual it is the allocation controller's reconcile time, which enforcement admission waits on. Either way it slows resource creation."
+        - alert: QuotaClaimErrors
+          expr: |
+            sum(rate(quota_claim_total{result="error"}[5m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Quota claims are failing with internal errors
+            description: "Claim allocations are failing with server-side errors (storage or status-apply failures; result=error, {{ $value | humanize }}/s). Quota decisions and client errors such as a missing bucket are not counted."
+    - name: quota.apiserver
+      rules:
+        - alert: QuotaApiserverErrorRateHigh
+          expr: |
+            (
+              sum(rate(apiserver_request_total{job="quota-apiserver", code=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(apiserver_request_total{job="quota-apiserver"}[5m])), 0.001)
+            ) > 0.05
+            and sum(rate(apiserver_request_total{job="quota-apiserver"}[5m])) > 0.1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Quota apiserver 5xx rate above 5%
+            description: "{{ $value | humanizePercentage }} of quota apiserver requests are failing with 5xx."
+        - alert: QuotaApiserverDown
+          expr: absent(up{job="quota-apiserver"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: No healthy quota apiserver target
+            description: No quota-apiserver scrape target has been up for 5 minutes.
+    - name: quota.controller
+      rules:
+        - alert: QuotaControllerReconcileErrors
+          expr: |
+            sum by (controller) (rate(controller_runtime_reconcile_errors_total{job="quota-controller-manager-metrics"}[10m])) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Quota controller {{ $labels.controller }} is hitting reconcile errors"
+            description: "Reconcile errors have been sustained for 15m ({{ $value | humanize }}/s)."
+        - alert: QuotaControllerManagerDown
+          expr: absent(up{job="quota-controller-manager-metrics"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: No healthy quota controller-manager target
+            description: Quota buckets and claims are not being reconciled.
+    - name: quota.watch
+      rules:
+        - alert: QuotaEnforcementWatchRestarts
+          expr: |
+            sum by (status_code) (rate(quota_enforcement_watch_restarts_total[10m])) > 0.1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Enforcement watch streams are restarting frequently
+            description: "Watch restarts with status_code={{ $labels.status_code }} at {{ $value | humanize }}/s."
+        - alert: QuotaEnforcementWatchEventErrors
+          expr: |
+            sum(rate(quota_enforcement_watch_events_processed_total{result="error"}[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Enforcement watch events are failing to process
+            description: "Watch events are being processed with result=error ({{ $value | humanize }}/s). Claim decisions may be delayed."
+        - alert: QuotaEnforcementWatchStreamsDisconnected
+          expr: |
+            sum(quota_enforcement_watch_streams_desired) - sum(quota_enforcement_watch_streams_connected) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Enforcement watch streams are not all connected
+            description: "{{ $value }} desired watch stream(s) have been disconnected for 10m."
+        - alert: QuotaEnforcementWatchBookmarkStale
+          expr: quota_enforcement_watch_bookmark_max_age_seconds > 600
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Enforcement watch bookmarks are stale
+            description: "Oldest bookmark is {{ $value | humanizeDuration }} old."
+    - name: quota.dual-storage
+      # Only meaningful when --storage-backend=dual (etcd primary, Postgres shadow).
+      rules:
+        - alert: QuotaPostgresShadowWriteFailures
+          expr: sum by (resource, operation) (increase(quota_dual_shadow_write_failures_total[15m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres shadow writes failing for {{ $labels.resource }}"
+            description: "{{ $value }} failed {{ $labels.operation }} shadow writes in 15m. Postgres is drifting from etcd."
+        - alert: QuotaPostgresShadowDivergence
+          expr: sum by (resource, reason) (quota_dual_divergent_objects) > 0
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Postgres shadow diverges from etcd for {{ $labels.resource }}"
+            description: "{{ $value }} objects are {{ $labels.reason }} (missing, orphaned or drifted) for 30m. Do not cut over to Postgres."
+        - alert: QuotaPostgresShadowReconcileErrors
+          expr: sum by (resource) (increase(quota_dual_reconcile_errors_total[15m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dual-storage reconcile loop erroring for {{ $labels.resource }}"
+            description: "The etcd/Postgres reconciler failed {{ $value }} times in 15m."
+        - alert: QuotaPostgresShadowReconcileStale
+          expr: time() - max by (resource) (quota_dual_last_reconcile_timestamp_seconds) > 1800
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Dual-storage reconcile has not completed for {{ $labels.resource }}"
+            description: "Last successful reconcile was {{ $value | humanizeDuration }} ago."

@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# The quota CA: one self-signed root (Certificate quota-ca, bootstrapped from
+# the cluster's selfsigned-cluster-issuer) and the Issuer quota-ca-issuer
+# that signs the apiserver's serving certificate (config/base/deployment.yaml,
+# cert-manager CSI driver). cert-manager's cainjector copies this CA into
+# the APIService (config/components/api-registration) and the enforcement
+# ValidatingWebhookConfiguration through their
+# cert-manager.io/inject-ca-from: quota-system/quota-ca annotations, so the
+# kube-apiserver verifies the quota apiserver's certificate with
+# insecureSkipTLSVerify off.
+resources:
+  - ca-certificate.yaml
+  - issuer.yaml

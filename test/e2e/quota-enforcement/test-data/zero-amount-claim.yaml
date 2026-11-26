@@ -1,0 +1,20 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: test-zero-amount-claim
+  namespace: edge-test-quota-enforcement-org
+  labels:
+    test.datumapis.com/quota: "true"
+    test.datumapis.com/scenario: "zero-amount"
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: edge-test-quota-enforcement-org
+  requests:
+    - resourceType: "test.datumapis.com/edgeprojects"
+      amount: 0  # Invalid zero amount
+  resourceRef:
+    apiGroup: ""
+    kind: ConfigMap
+    name: test-zero-amount-edge-project

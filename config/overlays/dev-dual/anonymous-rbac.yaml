@@ -1,0 +1,26 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-dev-full-access
+  annotations:
+    description: "DEV ONLY - Full CRUD access to Quota API resources"
+rules:
+  - apiGroups: ["quota.miloapis.com"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-anonymous-access
+  annotations:
+    description: "DEV ONLY - Allows anonymous access to Quota API for testing"
+subjects:
+  - kind: User
+    name: system:anonymous
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: quota-dev-full-access
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,368 @@
+version: '3'
+
+vars:
+  TOOL_DIR: "{{.USER_WORKING_DIR}}/bin"
+  # Container image configuration
+  QUOTA_IMAGE_NAME: "ghcr.io/datum-cloud/quota"
+  QUOTA_IMAGE_TAG: "dev"
+  TEST_INFRA_CLUSTER_NAME: "test-infra"
+  # Test infra repository configuration
+  TEST_INFRA_REPO_REF: 'v0.6.0'
+
+includes:
+  # Must set TASK_X_REMOTE_TASKFILES=1 to use this feature.
+  test-infra:
+    taskfile: https://raw.githubusercontent.com/datum-cloud/test-infra/{{.TEST_INFRA_REPO_REF}}/Taskfile.yml
+    checksum: a1cf6063def6ee21ba42f8a0818127c92a9a5c313c293387f2294e42480dd3d5
+    vars:
+      REPO_REF: "{{.TEST_INFRA_REPO_REF}}"
+  # Grafonnet dashboard build pipeline. Invoke from the repo root with:
+  #   task observability:build-dashboards
+  observability:
+    taskfile: ./observability/Taskfile.yaml
+    dir: ./observability
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  # Build tasks
+  build:
+    desc: Build the quota binary
+    cmds:
+      - |
+        set -e
+        echo "Building quota..."
+        mkdir -p {{.TOOL_DIR}}
+
+        # Get git information for version injection
+        GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+        VERSION="v0.0.0-dev+${GIT_COMMIT:0:7}"
+        GIT_TREE_STATE="clean"
+        if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+          GIT_TREE_STATE="dirty"
+        fi
+        BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "unknown")
+
+        echo "Version: ${VERSION}, Commit: ${GIT_COMMIT:0:7}, Tree: ${GIT_TREE_STATE}"
+
+        go build \
+          -ldflags="-X 'go.miloapis.com/quota/internal/version.Version=${VERSION}' \
+                    -X 'go.miloapis.com/quota/internal/version.GitCommit=${GIT_COMMIT}' \
+                    -X 'go.miloapis.com/quota/internal/version.GitTreeState=${GIT_TREE_STATE}' \
+                    -X 'go.miloapis.com/quota/internal/version.BuildDate=${BUILD_DATE}'" \
+          -o {{.TOOL_DIR}}/quota ./cmd/quota
+        echo "Binary built: {{.TOOL_DIR}}/quota"
+    silent: true
+
+  test:
+    desc: Run Go tests
+    cmds:
+      - go test -timeout 5m ./pkg/... ./internal/... ./cmd/... -count=1
+    silent: false
+
+  test:postgres:
+    desc: Run Go tests including the Postgres-backed ones (needs POSTGRES_DSN)
+    # Starts nothing: point POSTGRES_DSN at a disposable Postgres 13+ database
+    # first, for example
+    #   docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=quota_test postgres:16
+    #   export POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/quota_test?sslmode=disable'
+    # QUOTA_REQUIRE_POSTGRES=1 makes the Postgres tests fail instead of
+    # skipping when the database is unreachable. -p 1 because the test
+    # packages share one database and truncate the same tables.
+    requires:
+      vars: [POSTGRES_DSN]
+    env:
+      QUOTA_REQUIRE_POSTGRES: "1"
+    cmds:
+      - go test -p 1 -timeout 10m ./... -count=1
+    silent: false
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+    silent: false
+
+  # Development tasks
+  dev:build:
+    desc: Build the Quota server container image for development
+    silent: true
+    cmds:
+      - |
+        set -e
+        echo "Building Quota server container image: {{.QUOTA_IMAGE_NAME}}:{{.QUOTA_IMAGE_TAG}}"
+
+        GIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+        VERSION="v0.0.0-dev+${GIT_COMMIT:0:7}"
+        GIT_TREE_STATE="clean"
+        if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+          GIT_TREE_STATE="dirty"
+        fi
+        BUILD_DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "unknown")
+
+        echo "Version info: ${VERSION}, commit: ${GIT_COMMIT:0:7}, tree: ${GIT_TREE_STATE}"
+
+        if [ ! -f "Dockerfile" ]; then
+          echo "Warning: Dockerfile not found - skipping container build"
+          exit 1
+        fi
+
+        docker build \
+          --build-arg VERSION="${VERSION}" \
+          --build-arg GIT_COMMIT="${GIT_COMMIT}" \
+          --build-arg GIT_TREE_STATE="${GIT_TREE_STATE}" \
+          --build-arg BUILD_DATE="${BUILD_DATE}" \
+          -t "{{.QUOTA_IMAGE_NAME}}:{{.QUOTA_IMAGE_TAG}}" .
+        echo "Successfully built {{.QUOTA_IMAGE_NAME}}:{{.QUOTA_IMAGE_TAG}}"
+
+  dev:load:
+    desc: Load the Quota server container image into the kind cluster
+    silent: true
+    cmds:
+      - |
+        set -e
+        echo "Loading image {{.QUOTA_IMAGE_NAME}}:{{.QUOTA_IMAGE_TAG}} into kind cluster '{{.TEST_INFRA_CLUSTER_NAME}}'..."
+        kind load docker-image "{{.QUOTA_IMAGE_NAME}}:{{.QUOTA_IMAGE_TAG}}" --name "{{.TEST_INFRA_CLUSTER_NAME}}"
+        echo "Successfully loaded image into kind cluster"
+
+  dev:setup:
+    desc: Setup lightweight dev environment
+    silent: true
+    cmds:
+      - task: test-infra:cluster-up
+      # Lets the kube-apiserver authenticate to the enforcement webhook.
+      - task: dev:webhook-client
+      - task: dev:install-dependencies
+      # Install the upstream observability stack (Grafana Operator +
+      # Victoria Metrics + Prometheus Operator CRDs) before applying the
+      # dev overlay. The overlay includes config/components/observability,
+      # which references ServiceMonitor and GrafanaDashboard CRDs; without
+      # those CRDs `kubectl apply -k config/overlays/dev` in dev:deploy
+      # fails with "no matches for kind ServiceMonitor" on a fresh kind
+      # cluster.
+      - task: test-infra:install-observability
+      - task: dev:build
+      - task: dev:load
+      # dev:deploy creates the quota-system namespace and applies the dev
+      # overlay, which itself includes config/components/observability.
+      # The quota ServiceMonitors and GrafanaDashboards land in
+      # quota-system as part of this step.
+      - task: dev:deploy
+      # Post-deploy: wait for Grafana and print connection info.
+      - task: dev:observability
+
+  dev:install-dependencies:
+    desc: Install infrastructure dependencies for dev
+    silent: true
+    cmds:
+      - |
+        set -e
+        echo "Installing infrastructure dependencies..."
+
+        # Install NATS
+        echo "Installing NATS for event streaming..."
+        task test-infra:kubectl -- apply -k config/dependencies/nats
+
+        echo "Waiting for NATS namespace..."
+        task test-infra:kubectl -- wait --for=jsonpath='{.status.phase}'=Active namespace/nats-system --timeout=30s 2>/dev/null || echo "Namespace not ready yet"
+
+        echo "Waiting for NATS HelmRelease..."
+        task test-infra:kubectl -- wait --for=condition=ready helmrelease/nats -n nats-system --timeout=300s 2>/dev/null || echo "NATS HelmRelease not ready yet"
+
+        echo "Waiting for NATS pods..."
+        task test-infra:kubectl -- wait --for=condition=ready pod -l app.kubernetes.io/name=nats -n nats-system --timeout=120s 2>/dev/null || echo "NATS pods not ready yet"
+
+        echo "Infrastructure dependencies installed!"
+
+  dev:deploy:
+    desc: Deploy Quota server using dev overlay
+    silent: true
+    cmds:
+      - |
+        set -e
+        echo "Deploying Quota server (dev overlay)..."
+
+        if [ ! -d "config" ]; then
+          echo "Warning: config directory not found"
+          exit 1
+        fi
+
+        echo "Applying dev overlay..."
+        task test-infra:kubectl -- apply -k config/overlays/dev
+
+        echo "Waiting for etcd..."
+        task test-infra:kubectl -- wait --for=condition=ready helmrelease/etcd -n quota-system --timeout=300s 2>/dev/null || echo "etcd HelmRelease not ready yet"
+        task test-infra:kubectl -- wait --for=condition=ready pod -l app.kubernetes.io/name=etcd -n quota-system --timeout=120s 2>/dev/null || echo "etcd pods not ready yet"
+
+        echo "Waiting for Quota server..."
+        task test-infra:kubectl -- wait --for=condition=ready pod -l app=quota-apiserver -n quota-system --timeout=120s || echo "API server pods not ready yet"
+
+        echo "Waiting for APIService..."
+        task test-infra:kubectl -- wait --for=condition=Available apiservice/v1alpha1.quota.miloapis.com --timeout=120s || echo "APIService not available yet"
+
+        echo ""
+        echo "Installing example resources..."
+        task test-infra:kubectl -- apply -k examples/basic/
+
+        echo ""
+        echo "Quota server deployed (dev overlay)!"
+        echo ""
+        echo "Check status:"
+        echo "  All resources:     task test-infra:kubectl -- get all -n quota-system"
+        echo "  API server pods:   task test-infra:kubectl -- get pods -l app=quota-apiserver -n quota-system"
+        echo "  QuotaDefinitions:  task test-infra:kubectl -- get quotadefinitions"
+        echo ""
+
+  dev:webhook-client:
+    desc: Give the kind kube-apiserver a client certificate for the quota enforcement webhook
+    # The enforcement webhook requires an authenticated caller (see
+    # config/components/enforcement-webhook/README.md). kind's kube-apiserver
+    # has no admission kubeconfig, so this issues a client certificate with
+    # CN=quota-enforcement-webhook from the cluster CA, copies it with an
+    # AdmissionConfiguration into /etc/kubernetes/pki/quota-webhook on the
+    # control-plane node (already mounted into the kube-apiserver pod), and
+    # adds --admission-control-config-file to the static pod manifest. The
+    # kubelet then restarts kube-apiserver. Safe to run more than once.
+    silent: true
+    vars:
+      NODE: "{{.TEST_INFRA_CLUSTER_NAME}}-control-plane"
+      DIR: /etc/kubernetes/pki/quota-webhook
+    cmds:
+      - |
+        set -euo pipefail
+        node="{{.NODE}}" dir="{{.DIR}}"
+        manifest=/etc/kubernetes/manifests/kube-apiserver.yaml
+        if docker exec "$node" grep -q -- "--admission-control-config-file=$dir/admission.yaml" "$manifest"; then
+          echo "kube-apiserver already uses $dir/admission.yaml"
+          exit 0
+        fi
+        if docker exec "$node" grep -q -- "--admission-control-config-file" "$manifest"; then
+          echo "kube-apiserver already has another --admission-control-config-file; add the quota webhook kubeconfig to it by hand" >&2
+          exit 1
+        fi
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        docker cp "$node:/etc/kubernetes/pki/ca.crt" "$tmp/ca.crt"
+        docker cp "$node:/etc/kubernetes/pki/ca.key" "$tmp/ca.key"
+        openssl req -newkey rsa:2048 -nodes -keyout "$tmp/client.key" -out "$tmp/client.csr" \
+          -subj /CN=quota-enforcement-webhook 2>/dev/null
+        printf 'extendedKeyUsage=clientAuth\n' > "$tmp/ext.cnf"
+        openssl x509 -req -in "$tmp/client.csr" -CA "$tmp/ca.crt" -CAkey "$tmp/ca.key" -CAcreateserial \
+          -days 365 -extfile "$tmp/ext.cnf" -out "$tmp/client.crt" 2>/dev/null
+        cat > "$tmp/kubeconfig" <<EOF
+        apiVersion: v1
+        kind: Config
+        users:
+        - name: quota-apiserver.quota-system.svc
+          user:
+            client-certificate: $dir/client.crt
+            client-key: $dir/client.key
+        EOF
+        cat > "$tmp/admission.yaml" <<EOF
+        apiVersion: apiserver.config.k8s.io/v1
+        kind: AdmissionConfiguration
+        plugins:
+        - name: ValidatingAdmissionWebhook
+          configuration:
+            apiVersion: apiserver.config.k8s.io/v1
+            kind: WebhookAdmissionConfiguration
+            kubeConfigFile: $dir/kubeconfig
+        EOF
+        docker exec "$node" mkdir -p "$dir"
+        for f in client.crt client.key kubeconfig admission.yaml; do docker cp "$tmp/$f" "$node:$dir/$f"; done
+        docker exec "$node" sed -i "s|^    - kube-apiserver\$|&\n    - --admission-control-config-file=$dir/admission.yaml|" "$manifest"
+        echo "Waiting for kube-apiserver to restart with the admission configuration..."
+        for _ in $(seq 1 90); do
+          if task test-infra:kubectl -- -n kube-system get pod -l component=kube-apiserver \
+              -o jsonpath='{.items[0].spec.containers[0].command}' 2>/dev/null | grep -q admission-control-config-file \
+            && task test-infra:kubectl -- get --raw /readyz >/dev/null 2>&1; then
+            echo "kube-apiserver now authenticates to the quota webhook as quota-enforcement-webhook"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "kube-apiserver did not come back with the admission configuration" >&2
+        exit 1
+
+  dev:observability:
+    desc: Deploy the telemetry stack (Grafana + Victoria Metrics + Loki + Tempo) into the kind cluster
+    silent: true
+    cmds:
+      - |
+        set -e
+        echo "Deploying test-infra observability stack..."
+        # Delegates to the test-infra taskfile, which installs Grafana Operator,
+        # Victoria Metrics (metrics + ServiceMonitor conversion), Loki, Tempo,
+        # Promtail and the Prometheus Operator CRDs. These are prerequisites
+        # for the config/components/observability component used by the dev
+        # overlay (ServiceMonitors + Grafana dashboard).
+        task test-infra:install-observability
+
+        echo ""
+        echo "Reconciling quota observability component..."
+        # The quota observability component is namespaced to quota-system.
+        # On a fresh cluster that namespace is created by dev:deploy via the
+        # namespace component in config/overlays/dev, so ensure it exists
+        # here so this task is usable standalone (e.g. before dev:deploy has
+        # been run, or from a torn-down state).
+        task test-infra:kubectl -- create namespace quota-system --dry-run=client -o yaml | task test-infra:kubectl -- apply -f -
+        task test-infra:kubectl -- apply -k config/components/observability
+
+        echo ""
+        echo "Waiting for Grafana instance to be ready..."
+        task test-infra:kubectl -- wait --for=condition=ready pod -l app=grafana -n telemetry-system --timeout=180s || echo "Grafana pod not ready yet"
+
+        echo ""
+        echo "Observability stack ready."
+        echo ""
+        echo "Grafana:"
+        echo "  URL:      http://localhost:30000"
+        echo "  Username: admin"
+        echo "  Password: datum123"
+        echo ""
+        echo "The 'Quota Performance' dashboard is provisioned under"
+        echo "the 'Platform / Quota' folder via GrafanaDashboard CR."
+
+  dev:redeploy:
+    desc: Quick rebuild and redeploy for dev environment
+    deps:
+      - dev:build
+      - dev:load
+    cmds:
+      - |
+        set -e
+        echo "Redeploying Quota server (dev)..."
+
+        task test-infra:kubectl -- rollout restart -n quota-system deployment/quota-apiserver || echo "Deployment not found, run 'task dev:deploy' first"
+
+        echo "Waiting for rollout..."
+        task test-infra:kubectl -- rollout status -n quota-system deployment/quota-apiserver --timeout=120s || true
+
+        echo "Redeployment complete!"
+        echo "Check logs with: task test-infra:kubectl -- logs -l app=quota-apiserver -n quota-system -f"
+    silent: true
+
+  # Code generation
+  generate:
+    desc: Run all code generation tasks
+    cmds:
+      - |
+        set -e
+        echo "Running code generation..."
+        if [ -f "./hack/update-codegen.sh" ]; then
+          ./hack/update-codegen.sh
+        fi
+        ./hack/update-migrations-configmap.sh
+        echo "Code generation complete!"
+    silent: true
+
+  # E2E Testing
+  e2e:
+    desc: Run chainsaw e2e tests
+    cmds:
+      - chainsaw test test/e2e/ --config test/e2e/.chainsaw.yaml
+    silent: false

@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Enforcement webhook. See README.md: the kube-apiserver needs an admission
+# kubeconfig to authenticate to the webhook, and namespaces opt in with the
+# label quota.miloapis.com/enforcement=enabled.
+resources:
+  - validating-webhook-configuration.yaml
+  - rbac.yaml

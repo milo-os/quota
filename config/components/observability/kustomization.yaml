@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# This component wires the quota service into an *existing* observability
+# stack. It assumes the following CRDs are already installed in the target
+# cluster:
+#   - monitoring.coreos.com/v1 (ServiceMonitor, PrometheusRule)
+#   - grafana.integreatly.org/v1beta1 (GrafanaDashboard, Grafana)
+#
+# For local dev these are provided by the datum-cloud/test-infra observability
+# stack (Victoria Metrics + Grafana Operator + Loki + Tempo). Install it via:
+#
+#   task dev:observability
+#
+# which delegates to `task test-infra:install-observability`. Bringing the
+# stack up as a FluxCD HelmRelease set (rather than raw manifests) is chosen
+# to match the pattern used by config/components/{etcd,postgres} and by the
+# upstream datum-cloud/activity service: Flux is already running in the kind
+# cluster, so HelmReleases give us declarative, reconciled installs.
+#
+# Why not kube-prometheus-stack? The test-infra stack uses Victoria Metrics,
+# which ships an automatic ServiceMonitor -> VMServiceScrape converter. That
+# means this component can use the standard prometheus-operator ServiceMonitor
+# kind without caring which scraper actually runs in the cluster.
+resources:
+  # Prometheus scrape targets. Each component of the quota system has its
+  # own ServiceMonitor so scrape config is colocated with the other
+  # observability wiring instead of spread across component directories.
+  #
+  # The etcd scrape target is *not* configured here. The Bitnami etcd chart
+  # emits its own ServiceMonitor (see config/components/etcd/helmrelease.yaml,
+  # `metrics.serviceMonitor.enabled: true`) whose selector matches the
+  # chart-generated metrics Service. A hand-rolled ServiceMonitor in this
+  # repo previously selected zero endpoints due to a label/port-name mismatch.
+  - servicemonitors/quota-apiserver-servicemonitor.yaml
+  - servicemonitors/quota-controller-manager-servicemonitor.yaml
+  # ClusterRole granting get on /metrics. Bind it to your scraper's
+  # ServiceAccount; both endpoints reject unauthorized scrapes.
+  - metrics-reader.yaml
+  # PrometheusRule alerts (denials, latency, apiserver/controller errors,
+  # watch health, Postgres shadow divergence/write failures).
+  - alerts/quota-prometheusrule.yaml
+  # Grafana dashboards compiled from observability/dashboards/*.jsonnet
+  # via `task observability:build-dashboards`. The generated JSON is
+  # checked into the repo under dashboards/generated/ and embedded into
+  # ConfigMaps + GrafanaDashboard CRs by the nested kustomization.
+  - dashboards

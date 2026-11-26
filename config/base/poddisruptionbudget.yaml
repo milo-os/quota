@@ -1,0 +1,13 @@
+# The enforcement webhook fails closed, so keep at least one apiserver
+# replica serving during voluntary disruptions. maxUnavailable (rather than
+# minAvailable) keeps single-replica dev overlays drainable.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: quota-apiserver
+  namespace: quota-system
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: quota-apiserver

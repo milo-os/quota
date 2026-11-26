@@ -1,0 +1,76 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nats
+  namespace: nats-system
+spec:
+  interval: 5m
+  timeout: 10m
+
+  chart:
+    spec:
+      chart: nats
+      version: 1.2.x
+      sourceRef:
+        kind: HelmRepository
+        name: nats
+        namespace: nats-system
+      interval: 1h
+
+  values:
+    # NATS configuration
+    config:
+      # JetStream configuration
+      jetstream:
+        enabled: true
+        fileStore:
+          dir: /data
+          pvc:
+            enabled: true
+            size: 10Gi
+            storageClassName: standard
+
+        # Resource limits for JetStream
+        maxMemory: 256Mi
+        maxFile: 10Gi
+
+    # Cluster configuration
+    cluster:
+      enabled: false  # Single node for dev
+      replicas: 1
+
+    # Resource limits
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+    # Monitoring
+    promExporter:
+      enabled: true
+      port: 7777
+
+      podMonitor:
+        enabled: true
+        labels:
+          monitoring: "true"
+
+    # NATS Box for management
+    natsbox:
+      enabled: true
+
+  # Install CRDs if needed
+  install:
+    crds: Create
+    createNamespace: false
+
+  # Upgrade CRDs
+  upgrade:
+    crds: CreateReplace
+
+  # Uninstall configuration
+  uninstall:
+    keepHistory: false

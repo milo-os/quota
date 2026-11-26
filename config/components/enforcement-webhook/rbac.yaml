@@ -1,0 +1,33 @@
+# Who may call the enforcement webhook.
+#
+# /webhook/enforce is served behind the quota apiserver's delegated
+# authentication and authorization, so the kube-apiserver must present a
+# credential when it calls the webhook, and that identity must be allowed to
+# POST the /webhook/enforce non-resource URL. Anyone else who can reach the
+# Service gets 403: a forged AdmissionReview would otherwise create real
+# QuotaClaims with the quota apiserver's identity.
+#
+# The binding names the user quota-enforcement-webhook, the common name of
+# the client certificate the kube-apiserver presents (see README.md). Patch
+# the subjects if your kube-apiserver authenticates as someone else, for
+# example a ServiceAccount whose token is in its admission kubeconfig.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-enforcement-webhook-caller
+rules:
+  - nonResourceURLs: ["/webhook/enforce"]
+    verbs: ["post"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-enforcement-webhook-caller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-enforcement-webhook-caller
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: quota-enforcement-webhook

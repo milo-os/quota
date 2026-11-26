@@ -1,0 +1,23 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: multi-test-multi-resource-claim-partial-deny
+  namespace: quota-e2e-multi-resource
+  labels:
+    test.miloapis.com/scenario: multi-resource-claims
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: quota-e2e-multi-resource
+  requests:
+    - resourceType: "test.miloapis.com/projects/subresource"
+      amount: 1
+    - resourceType: "test.multicluster.miloapis.com/users"
+      amount: 20  # This should exceed quota (15 available)
+    - resourceType: "infrastructure.miloapis.com/clusters"
+      amount: 1
+  resourceRef:
+    apiGroup: ""
+    kind: ConfigMap
+    name: multi-test-multi-resource-claim-partial-deny

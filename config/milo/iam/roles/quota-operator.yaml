@@ -1,0 +1,50 @@
+apiVersion: iam.miloapis.com/v1alpha1
+kind: Role
+metadata:
+  name: quota.miloapis.com-operator
+  namespace: milo-system
+  annotations:
+    kubernetes.io/display-name: Quota Operator
+    kubernetes.io/description: Operational access to quota resources for system reconciliation, including full management of quota buckets
+  labels:
+    quota.miloapis.com/role-type: operator
+    quota.miloapis.com/service: quota
+spec:
+  launchStage: Beta
+  includedPermissions:
+    # QuotaDefinition read permissions
+    - quota.miloapis.com/quotadefinitions.get
+    - quota.miloapis.com/quotadefinitions.list
+    - quota.miloapis.com/quotadefinitions.watch
+
+    # QuotaGrant read permissions
+    - quota.miloapis.com/quotagrants.get
+    - quota.miloapis.com/quotagrants.list
+    - quota.miloapis.com/quotagrants.watch
+
+    # QuotaClaim limited management (for cleanup and reconciliation)
+    - quota.miloapis.com/quotaclaims.get
+    - quota.miloapis.com/quotaclaims.list
+    - quota.miloapis.com/quotaclaims.update
+    - quota.miloapis.com/quotaclaims.patch
+    - quota.miloapis.com/quotaclaims.watch
+    - quota.miloapis.com/quotaclaims.delete
+
+    # QuotaBucket full management (system-managed resource)
+    - quota.miloapis.com/quotabuckets.create
+    - quota.miloapis.com/quotabuckets.get
+    - quota.miloapis.com/quotabuckets.list
+    - quota.miloapis.com/quotabuckets.update
+    - quota.miloapis.com/quotabuckets.patch
+    - quota.miloapis.com/quotabuckets.watch
+    - quota.miloapis.com/quotabuckets.delete
+
+    # GrantCreationPolicy read permissions
+    - quota.miloapis.com/grantcreationpolicies.get
+    - quota.miloapis.com/grantcreationpolicies.list
+    - quota.miloapis.com/grantcreationpolicies.watch
+
+    # ClaimCreationPolicy read permissions
+    - quota.miloapis.com/claimcreationpolicies.get
+    - quota.miloapis.com/claimcreationpolicies.list
+    - quota.miloapis.com/claimcreationpolicies.watch

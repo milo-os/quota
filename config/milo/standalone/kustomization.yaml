@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Applicable wrapper around the config/milo Component so it can be installed
+# with:  kubectl apply -k config/milo/standalone
+#
+# No namespace transformer is used on purpose: ProtectedResources,
+# QuotaDefinitions, ClaimCreationPolicies and ResourceMetricsPolicy are
+# cluster scoped, and stamping a namespace on them is wrong. Roles carry
+# metadata.namespace=milo-system themselves; the PolicyBinding is patched
+# below so it and its roleRef also land in milo-system.
+#
+# This lists the same sub-components as ../kustomization.yaml (a Component
+# cannot be referenced from a child directory of itself).
+components:
+  - ../iam
+  - ../rbac
+  - ../telemetry
+  - ../registrations
+  - ../claim-policies
+
+patches:
+  - target:
+      group: iam.miloapis.com
+      kind: PolicyBinding
+    patch: |-
+      - op: add
+        path: /metadata/namespace
+        value: milo-system
+      - op: add
+        path: /spec/roleRef/namespace
+        value: milo-system

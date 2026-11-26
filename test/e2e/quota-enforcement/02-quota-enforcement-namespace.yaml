@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: edge-test-quota-enforcement-org
+  annotations:
+    kubernetes.io/display-name: "Test Quota Enforcement Namespace"
+    kubernetes.io/description: "Namespace for testing quota limit enforcement"
+  labels:
+    test.miloapis.com/quota: "enforcement"
+    test.miloapis.com/scenario: "quota-enforcement"
+    quota.miloapis.com/test-tier: "standard"

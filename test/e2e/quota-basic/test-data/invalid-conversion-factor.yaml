@@ -1,0 +1,15 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-invalid-conversion
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Allocation"
+  resourceType: "test.validation.datumapis.com/storage"
+  description: "Invalid conversion factor test"
+  baseUnit: "bytes"
+  displayUnit: "gigabytes"
+  # Invalid unitConversionFactor - must be >= 1
+  unitConversionFactor: 0

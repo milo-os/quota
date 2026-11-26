@@ -1,0 +1,33 @@
+---
+# Dev-only: ClusterRole granting full access to all quota.miloapis.com resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-dev-full-access
+  annotations:
+    description: "DEV ONLY - Full CRUD access to Quota API resources"
+rules:
+  - apiGroups: ["quota.miloapis.com"]
+    resources: ["quotadefinitions", "quotagrants", "quotaclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# Dev-only: Allow anonymous users to access Quota resources
+# This is required for local testing without authentication configured
+# In production, proper authentication should be configured
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-anonymous-access
+  annotations:
+    description: "DEV ONLY - Allows anonymous access to Quota API for testing"
+subjects:
+  - kind: User
+    name: system:anonymous
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: quota-dev-full-access
+  apiGroup: rbac.authorization.k8s.io
+# NOTE: /metrics is not opened to anonymous users. The test-infra
+# observability stack scrapes with its ServiceAccount token, authorized by
+# config/components/test-infra-access.

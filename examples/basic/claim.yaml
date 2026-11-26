@@ -1,0 +1,18 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: project-compute-vcpu
+  namespace: default
+spec:
+  consumerRef:
+    apiGroup: "resourcemanager.miloapis.com"
+    kind: "Project"
+    name: "example-project"
+  requests:
+    - resourceType: "compute.datumapis.com/vCPU"
+      amount: 10000
+  resourceRef:
+    apiGroup: "compute.datumapis.com"
+    kind: "VirtualMachine"
+    name: "my-vm"
+    namespace: "default"

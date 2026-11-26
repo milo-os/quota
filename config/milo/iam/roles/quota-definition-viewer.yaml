@@ -1,0 +1,19 @@
+# NOTE: role name kept as Milo's "resource-registration-viewer" (not renamed to
+# quota-definition-viewer) so existing PolicyBindings that reference it keep working.
+apiVersion: iam.miloapis.com/v1alpha1
+kind: Role
+metadata:
+  name: quota.miloapis.com-resource-registration-viewer
+  namespace: milo-system
+  annotations:
+    kubernetes.io/display-name: Quota Definition Viewer
+    kubernetes.io/description: View access to the QuotaDefinition catalog (feature flags, entities, allocations)
+  labels:
+    quota.miloapis.com/role-type: viewer
+    quota.miloapis.com/service: quota
+spec:
+  launchStage: Beta
+  includedPermissions:
+    - quota.miloapis.com/quotadefinitions.get
+    - quota.miloapis.com/quotadefinitions.list
+    - quota.miloapis.com/quotadefinitions.watch

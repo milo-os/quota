@@ -1,0 +1,20 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: grant-namespace-template-test-org-default-org
+  namespace: namespace-template-test-org
+  labels:
+    quota.miloapis.com/auto-created: "true"
+    quota.miloapis.com/policy: "test-namespace-template-policy"
+spec:
+  consumerRef:
+    kind: Namespace
+    name: namespace-template-test-org
+  allowances:
+    - resourceType: test.grantpolicy.miloapis.com/projects
+      buckets:
+        - amount: 5
+status:
+  conditions:
+    - type: Active
+      status: "True"

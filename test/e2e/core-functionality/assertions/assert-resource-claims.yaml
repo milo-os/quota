@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: quota.miloapis.com/v1alpha1
+  kind: QuotaClaim
+  metadata:
+    namespace: quota-e2e-core-basic
+    labels:
+      quota.miloapis.com/auto-created: "true"
+      quota.miloapis.com/test: "true"
+  spec:
+    consumerRef:
+      kind: Namespace
+      name: quota-e2e-core-basic
+    requests:
+      - resourceType: "test.corefunction.miloapis.com/projects"
+        amount: 1
+    resourceRef:
+      kind: ConfigMap
+      name: core-test-basic-project-1
+  status:
+    conditions:
+    - type: Granted
+      status: "True"
+      reason: QuotaAvailable
+- apiVersion: quota.miloapis.com/v1alpha1
+  kind: QuotaClaim
+  metadata:
+    namespace: quota-e2e-core-basic
+    labels:
+      quota.miloapis.com/auto-created: "true"
+      quota.miloapis.com/test: "true"
+  spec:
+    consumerRef:
+      kind: Namespace
+      name: quota-e2e-core-basic
+    requests:
+      - resourceType: "test.corefunction.miloapis.com/projects"
+        amount: 1
+    resourceRef:
+      kind: ConfigMap
+      name: core-test-basic-project-2
+  status:
+    conditions:
+    - type: Granted
+      status: "True"
+      reason: QuotaAvailable

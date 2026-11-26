@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-controller-manager
+  namespace: quota-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quota-controller-manager
+  template:
+    metadata:
+      labels:
+        app: quota-controller-manager
+    spec:
+      serviceAccountName: quota-controller-manager
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: controller-manager
+        image: ghcr.io/datum-cloud/quota:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        # HTTPS; scrapers must authenticate and be allowed get on the
+        # /metrics non-resource URL (config/components/observability).
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        command:
+        - /quota
+        - controller-manager
+        args:
+        # Allocation mode is derived from the storage backend; keep this in
+        # sync with the apiserver's STORAGE_BACKEND or startup fails.
+        - --quota-storage-backend=$(STORAGE_BACKEND)
+        - --metrics-addr=$(METRICS_ADDR)
+        - --health-probe-addr=$(HEALTH_PROBE_ADDR)
+        - --logging-format=$(LOGGING_FORMAT)
+        - -v=$(LOG_LEVEL)
+        env:
+        - name: STORAGE_BACKEND
+          value: "etcd"
+        - name: METRICS_ADDR
+          value: ":8443"
+        - name: HEALTH_PROBE_ADDR
+          value: ":8081"
+        - name: LOGGING_FORMAT
+          value: "json"
+        - name: LOG_LEVEL
+          value: "2"
+        resources:
+          requests:
+            cpu: 250m
+            # Round-7 CPU bump to 2000m raised throughput ~4x; matching the
+            # request bump keeps scheduling headroom proportional while
+            # leaving requests < limits (Burstable QoS).
+            memory: 256Mi
+          limits:
+            # Round-7 profiling found the quota control plane CFS-throttled
+            # at the previous limit. Bumped to 2000m so the controller-manager
+            # is not the bottleneck during enforcement perf runs and stays in
+            # sync with the apiserver deployment.
+            cpu: 2000m
+            # Round-7 CPU bump to 2000m raised throughput ~4x. Controller
+            # has less heap pressure than the apiserver, but the dynamic
+            # informer manager from round-3 holds informer state for
+            # arbitrary trigger resources which can grow. 512Mi gives
+            # headroom without matching the apiserver's 1Gi.
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

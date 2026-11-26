@@ -1,0 +1,35 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: GrantCreationPolicy
+metadata:
+  name: mc-test-project-secret-grant-policy
+  labels:
+    test.miloapis.com/quota: "multicluster"
+spec:
+  disabled: false
+  trigger:
+    resource:
+      apiVersion: "v1"
+      kind: "Namespace"
+    constraints:
+      - expression: 'has(trigger.metadata.labels) && "test.miloapis.com/quota" in trigger.metadata.labels && trigger.metadata.labels["test.miloapis.com/quota"] == "multicluster"'
+  target:
+    parentContext:
+      apiGroup: ""
+      kind: "Namespace"
+      nameExpression: "trigger.metadata.name"
+    resourceGrantTemplate:
+      metadata:
+        name: "auto-grant-{{trigger.metadata.name}}"
+        namespace: "{{trigger.metadata.name}}"
+        labels:
+          quota.miloapis.com/auto-created: "true"
+          test.miloapis.com/quota: "multicluster"
+      spec:
+        consumerRef:
+          apiGroup: ""
+          kind: "Namespace"
+          name: "{{trigger.metadata.name}}"
+        allowances:
+          - resourceType: "test.multicluster.miloapis.com/secrets"
+            buckets:
+              - amount: 5

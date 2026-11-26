@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pre-created-test-project
+  namespace: quota-e2e-pre-created
+data:
+  purpose: "resource-ref target for pre-created-buckets e2e test"

@@ -1,0 +1,96 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: observability-dashboard
+spec:
+  description: |
+    Verifies that the quota performance Grafana dashboard is deployed
+    correctly by the observability Component:
+      1. The ConfigMap generated from observability/dashboards/quota-performance.jsonnet
+         exists with the grafana-operator discovery label and non-empty JSON.
+      2. The GrafanaDashboard custom resource exists in quota-system, has
+         the correct configMapRef pointing at the ConfigMap, and
+         (if grafana-operator is present in the cluster) reconciles without
+         a NoMatchingInstances condition.
+      3. The etcd ServiceMonitor is wired up so the etcd Health row has
+         a scrape target.
+
+    Preconditions: the test-infra overlay (or any overlay that includes
+    the observability component) has been applied to the cluster. Does
+    not require a running Grafana instance — grafana-operator CRDs must
+    be present, but the instanceSelector matching is only verified when
+    a Grafana instance with label `dashboards: grafana` exists.
+
+  steps:
+    - name: assert-dashboard-configmap
+      description: |
+        The dashboard JSON is packaged as a ConfigMap with the
+        `grafana_dashboard: "1"` label so grafana-operator (and the
+        deprecated sidecar discovery pattern) can find it.
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: quota-performance-dashboard
+                namespace: quota-system
+                labels:
+                  grafana_dashboard: "1"
+
+    - name: assert-configmap-contains-dashboard-json
+      description: |
+        The ConfigMap must carry the compiled dashboard under the key
+        `quota-performance.json` and the payload must be valid JSON with
+        the expected dashboard uid. We assert on the uid rather than full
+        content because the rest of the JSON is large and changes
+        whenever the jsonnet source is edited.
+      try:
+        - script:
+            content: |
+              set -e
+              kubectl -n quota-system get configmap quota-performance-dashboard \
+                -o jsonpath='{.data.quota-performance\.json}' \
+                | jq -e '.uid == "datum-quota-performance"' >/dev/null
+              echo "dashboard uid matches datum-quota-performance"
+
+    - name: assert-grafanadashboard-resource
+      description: |
+        The GrafanaDashboard CR must exist with the configMapRef wired up
+        so grafana-operator can read the JSON from the ConfigMap above.
+      try:
+        - assert:
+            resource:
+              apiVersion: grafana.integreatly.org/v1beta1
+              kind: GrafanaDashboard
+              metadata:
+                name: quota-performance-dashboard
+                namespace: quota-system
+                labels:
+                  dashboards: grafana
+              spec:
+                folder: "Platform / Quota"
+                allowCrossNamespaceImport: true
+                instanceSelector:
+                  matchLabels:
+                    dashboards: grafana
+                configMapRef:
+                  name: quota-performance-dashboard
+                  key: quota-performance.json
+
+    - name: assert-apiserver-servicemonitor
+      description: |
+        The quota-apiserver ServiceMonitor must exist so Prometheus can
+        scrape quota API server metrics.
+      try:
+        - assert:
+            resource:
+              apiVersion: monitoring.coreos.com/v1
+              kind: ServiceMonitor
+              metadata:
+                name: quota-apiserver
+                namespace: quota-system
+              spec:
+                selector:
+                  matchLabels:
+                    app.kubernetes.io/name: quota

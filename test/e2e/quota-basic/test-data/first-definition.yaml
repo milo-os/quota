@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-first-definition
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.validation.datumapis.com/unique-resource"
+  description: "First definition with unique resourceType"
+  baseUnit: "resource"
+  displayUnit: "resources"
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: test.datumapis.com
+      kind: TestResource

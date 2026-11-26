@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: List
+items:
+- apiVersion: quota.miloapis.com/v1alpha1
+  kind: QuotaClaim
+  metadata:
+    namespace: quota-e2e-core-basic
+    annotations:
+      quota.miloapis.com/resource-name: core-test-basic-project-1
+
+- apiVersion: quota.miloapis.com/v1alpha1
+  kind: QuotaClaim
+  metadata:
+    namespace: quota-e2e-core-basic
+    annotations:
+      quota.miloapis.com/resource-name: core-test-basic-project-2

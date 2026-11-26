@@ -1,0 +1,21 @@
+# Allows scraping the quota apiserver's and controller-manager's /metrics.
+# Both check the scraper's bearer token and then authorize get on this
+# non-resource URL. Bind it to the scraper's ServiceAccount, for example:
+#
+#   apiVersion: rbac.authorization.k8s.io/v1
+#   kind: ClusterRoleBinding
+#   metadata:
+#     name: quota-metrics-reader
+#   roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: quota-metrics-reader}
+#   subjects:
+#     - {kind: ServiceAccount, name: vmagent, namespace: monitoring}
+#
+# Many scrapers (Prometheus, vmagent) already hold get on /metrics through
+# their own ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]

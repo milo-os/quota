@@ -1,0 +1,68 @@
+# Metrics Service + ServiceMonitor for the quota controller-manager.
+#
+# The controller-manager serves controller-runtime metrics (reconcile
+# counters, workqueue_*, quota_claim_*) over HTTPS on the `metrics`
+# container port (8443, see config/base/controller-manager-deployment.yaml).
+# Every scrape is authenticated with TokenReview and authorized with a
+# SubjectAccessReview for get on /metrics, so the scraper sends its
+# ServiceAccount token and must be bound to the quota-metrics-reader
+# ClusterRole (metrics-reader.yaml). The certificate is self-signed, hence
+# insecureSkipVerify; the bearer token is what protects the endpoint.
+# It has no Service in base, so one is defined here, scoped to this
+# component, with distinct labels so the apiserver ServiceMonitor (which
+# selects app.kubernetes.io/name=quota) does not pick it up.
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota-controller-manager-metrics
+  namespace: quota-system
+  labels:
+    app: quota-controller-manager
+    app.kubernetes.io/component: controller-manager-metrics
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: quota-controller-manager
+  ports:
+    - name: metrics
+      port: 8443
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: quota-controller-manager
+  namespace: quota-system
+  labels:
+    app: quota-controller-manager
+    app.kubernetes.io/name: quota
+    app.kubernetes.io/component: controller-manager
+    monitoring: "true"
+spec:
+  selector:
+    matchLabels:
+      app: quota-controller-manager
+      app.kubernetes.io/component: controller-manager-metrics
+  namespaceSelector:
+    matchNames:
+      - quota-system
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service

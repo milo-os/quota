@@ -1,0 +1,59 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Milo's scope for config/components/enforcement-webhook. List this
+# component after ../../components/enforcement-webhook in an overlay:
+#
+#   components:
+#     - <path>/config/components/enforcement-webhook
+#     - <path>/config/milo/enforcement-webhook
+#
+# Milo enforces quota in every tenant namespace, so instead of the
+# quota.miloapis.com/enforcement=enabled namespace opt-in (which anyone who
+# creates a namespace could leave off) the webhooks match exactly the kinds
+# Milo's ClaimCreationPolicies target (config/milo/claim-policies). A quota
+# outage then blocks only those creates. Update both lists together.
+patches:
+  - target:
+      group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      name: quota-enforcement
+    patch: |-
+      - op: test
+        path: /webhooks/0/name
+        value: enforce.quota.miloapis.com
+      - op: replace
+        path: /webhooks/0/rules
+        value:
+          - apiGroups: [""]
+            apiVersions: ["v1"]
+            resources: ["configmaps", "secrets"]
+            operations: ["CREATE"]
+            scope: Namespaced
+          - apiGroups: ["notes.miloapis.com"]
+            apiVersions: ["*"]
+            resources: ["notes"]
+            operations: ["CREATE"]
+            scope: Namespaced
+      - op: replace
+        path: /webhooks/0/namespaceSelector
+        value:
+          matchExpressions:
+            - key: kubernetes.io/metadata.name
+              operator: NotIn
+              values:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - quota-system
+      - op: test
+        path: /webhooks/1/name
+        value: enforce-cluster.quota.miloapis.com
+      - op: replace
+        path: /webhooks/1/rules
+        value:
+          - apiGroups: ["notes.miloapis.com"]
+            apiVersions: ["*"]
+            resources: ["clusternotes"]
+            operations: ["CREATE"]
+            scope: Cluster

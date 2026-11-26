@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# DEV ONLY. A fixed, publicly known password for the in-cluster Postgres
+# started by config/components/postgres. Used by the dev-postgres and
+# dev-dual overlays (and the perf-* overlays built on them). Never include
+# this in an overlay that holds real data; create the postgres-credentials
+# Secret from a secret manager instead (keys: dsn, password).
+resources:
+  - secret.yaml

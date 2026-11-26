@@ -1,0 +1,20 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: test-negative-amount-claim
+  namespace: edge-test-quota-enforcement-org
+  labels:
+    test.datumapis.com/quota: "true"
+    test.datumapis.com/scenario: "negative-amount"
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: edge-test-quota-enforcement-org
+  requests:
+    - resourceType: "test.datumapis.com/edgeprojects"
+      amount: -1  # Invalid negative amount
+  resourceRef:
+    apiGroup: ""
+    kind: ConfigMap
+    name: test-negative-amount-edge-project

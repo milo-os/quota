@@ -1,0 +1,23 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: auto-grant-premium-test-org
+  namespace: premium-test-org
+  labels:
+    quota.miloapis.com/auto-created: "true"
+status:
+  conditions:
+    - type: Active
+      status: "True"
+---
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: premium-grant-cel-trigger-org-standard
+  namespace: cel-trigger-org
+  labels:
+    quota.miloapis.com/auto-created: "true"
+status:
+  conditions:
+    - type: Active
+      status: "True"

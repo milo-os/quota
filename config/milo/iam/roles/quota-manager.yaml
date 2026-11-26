@@ -1,0 +1,51 @@
+apiVersion: iam.miloapis.com/v1alpha1
+kind: Role
+metadata:
+  name: quota.miloapis.com-manager
+  namespace: milo-system
+  annotations:
+    kubernetes.io/display-name: Quota Manager
+    kubernetes.io/description: Manage quota grants and claims, with read access to quota definitions and creation policies
+  labels:
+    quota.miloapis.com/role-type: manager
+    quota.miloapis.com/service: quota
+spec:
+  launchStage: Beta
+  includedPermissions:
+    # QuotaDefinition read permissions only
+    - quota.miloapis.com/quotadefinitions.get
+    - quota.miloapis.com/quotadefinitions.list
+    - quota.miloapis.com/quotadefinitions.watch
+
+    # QuotaGrant full management
+    - quota.miloapis.com/quotagrants.create
+    - quota.miloapis.com/quotagrants.get
+    - quota.miloapis.com/quotagrants.list
+    - quota.miloapis.com/quotagrants.update
+    - quota.miloapis.com/quotagrants.delete
+    - quota.miloapis.com/quotagrants.patch
+    - quota.miloapis.com/quotagrants.watch
+
+    # QuotaClaim full management
+    - quota.miloapis.com/quotaclaims.create
+    - quota.miloapis.com/quotaclaims.get
+    - quota.miloapis.com/quotaclaims.list
+    - quota.miloapis.com/quotaclaims.update
+    - quota.miloapis.com/quotaclaims.delete
+    - quota.miloapis.com/quotaclaims.patch
+    - quota.miloapis.com/quotaclaims.watch
+
+    # QuotaBucket read permissions
+    - quota.miloapis.com/quotabuckets.get
+    - quota.miloapis.com/quotabuckets.list
+    - quota.miloapis.com/quotabuckets.watch
+
+    # GrantCreationPolicy read permissions only
+    - quota.miloapis.com/grantcreationpolicies.get
+    - quota.miloapis.com/grantcreationpolicies.list
+    - quota.miloapis.com/grantcreationpolicies.watch
+
+    # ClaimCreationPolicy read permissions only
+    - quota.miloapis.com/claimcreationpolicies.get
+    - quota.miloapis.com/claimcreationpolicies.list
+    - quota.miloapis.com/claimcreationpolicies.watch

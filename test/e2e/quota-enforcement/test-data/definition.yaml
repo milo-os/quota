@@ -1,0 +1,19 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: edge-test-projects-per-org
+  labels:
+    test.datumapis.com/quota: "true"
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.datumapis.com/edgeprojects"
+  description: "Edge case test quota for maximum edge projects per namespace"
+  baseUnit: "EdgeProject"
+  displayUnit: "Edge Projects"
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: ""
+      kind: ConfigMap

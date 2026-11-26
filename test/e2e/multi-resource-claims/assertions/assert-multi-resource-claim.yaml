@@ -1,0 +1,27 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: multi-test-multi-resource-claim
+  namespace: quota-e2e-multi-resource
+  labels:
+    test.miloapis.com/scenario: multi-resource-claims
+spec:
+  consumerRef:
+    kind: Namespace
+    name: quota-e2e-multi-resource
+  requests:
+    - resourceType: "test.miloapis.com/projects/subresource"
+      amount: 2
+    - resourceType: "test.multicluster.miloapis.com/users"
+      amount: 5
+    - resourceType: "infrastructure.miloapis.com/clusters"
+      amount: 1
+  resourceRef:
+    kind: ConfigMap
+    name: multi-test-multi-resource-claim
+status:
+  # Just check the overall claim status condition
+  conditions:
+    - type: "Granted"
+      status: "True"
+      reason: "QuotaAvailable"

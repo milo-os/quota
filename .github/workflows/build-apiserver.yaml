@@ -1,0 +1,45 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    # perf/** branches are performance experiments; they publish nothing.
+    branches-ignore: ["perf/**"]
+  release:
+    types: ["published"]
+
+# Jobs that publish widen this for themselves.
+permissions:
+  contents: read
+
+jobs:
+  validate-kustomize:
+    uses: datum-cloud/actions/.github/workflows/validate-kustomize.yaml@v1.12.1
+
+  publish-container-image:
+    needs:
+      - validate-kustomize
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+      attestations: write
+    uses: datum-cloud/actions/.github/workflows/publish-docker.yaml@v1.12.1
+    with:
+      image-name: quota
+    secrets: inherit
+
+  publish-kustomize-bundles:
+    needs:
+      - validate-kustomize
+      - publish-container-image
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    uses: datum-cloud/actions/.github/workflows/publish-kustomize-bundle.yaml@v1.12.1
+    with:
+      bundle-name: ghcr.io/datum-cloud/quota-kustomize
+      bundle-path: config
+      image-overlays: config/base
+      image-name: ghcr.io/datum-cloud/quota
+    secrets: inherit

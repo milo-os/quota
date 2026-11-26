@@ -1,0 +1,10 @@
+# Locally built binary (task build writes to bin/)
+/quota
+/bin/
+
+# Local tool state: kubeconfig cache, remote Taskfile cache, Claude Code
+# session files, and the test-infra checkout the Taskfile clones.
+/.kube/
+/.task/
+/.claude/
+/.test-infra/

@@ -1,0 +1,16 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: project-compute-vcpu
+  namespace: default
+spec:
+  # The consumer must match the claim's consumerRef. A bucket is keyed on
+  # resource type, consumer kind and consumer name.
+  consumerRef:
+    apiGroup: "resourcemanager.miloapis.com"
+    kind: "Project"
+    name: "example-project"
+  allowances:
+    - resourceType: "compute.datumapis.com/vCPU"
+      buckets:
+        - amount: 100000

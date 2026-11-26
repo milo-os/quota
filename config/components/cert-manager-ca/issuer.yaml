@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: quota-ca-issuer
+  namespace: quota-system
+spec:
+  ca:
+    # Reference the secret created by the CA Certificate
+    secretName: quota-ca-secret

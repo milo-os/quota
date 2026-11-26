@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-apiserver
+  namespace: quota-system
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: apiserver
+        imagePullPolicy: Never
+        env:
+        - name: LOG_LEVEL
+          value: "4"
+        - name: STORAGE_BACKEND
+          value: "dual"
+        - name: POSTGRES_DSN
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: dsn
+        resources:
+          requests:
+            cpu: 100m
+            # Round-7 CPU bump to 2000m raised throughput ~4x; doubling the
+            # request keeps scheduling headroom proportional while staying
+            # below the limit (Burstable QoS).
+            memory: 128Mi
+          limits:
+            # Round-7 profiling found the apiserver CFS-throttled at 500m,
+            # capping throughput for the dual-write backend. Matches the dev
+            # overlay bump so etcd/postgres/dual comparisons stay fair.
+            cpu: 2000m
+            # Round-7 CPU bump to 2000m raised throughput ~4x, so the working
+            # set grew proportionally and the k6 load run busted the 256Mi
+            # ceiling at ~2:25. 1Gi gives 4x headroom plus a buffer for the
+            # new pgxpool prepared-statement caches and the native rest.Storage
+            # per-watch state.
+            memory: 1Gi

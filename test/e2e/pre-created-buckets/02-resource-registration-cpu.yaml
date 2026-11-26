@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: pre-created-test-cpu-per-org
+spec:
+  resourceType: "pre-created-test/cpu-per-org"
+  consumerType:
+    kind: Namespace
+    apiGroup: ""
+  type: Allocation
+  description: "CPU allocation per namespace (pre-created bucket test)"
+  baseUnit: millicore
+  displayUnit: core
+  unitConversionFactor: 1000
+  claimingResources:
+    - apiGroup: ""
+      kind: ConfigMap

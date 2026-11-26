@@ -1,0 +1,317 @@
+name: "Performance Tests"
+
+# Three kinds of performance test:
+#
+#   go-benchmarks  Go benchmarks for the Postgres write path, run against a
+#                  Postgres service container. These measure the global RV
+#                  lock (quota_next_rv()) directly.
+#   linux-sweep    Claim throughput at several client counts with Postgres,
+#                  the quota apiserver, kube-apiserver and k6 each pinned to
+#                  their own CPUs on one runner (test/load/ci/linux-sweep.sh).
+#                  This is the number to track over time. It runs on the
+#                  self-hosted milo-linux ARC pool (datum-cloud/infra,
+#                  infrastructure/actions-runner-controller): one runner
+#                  per n2d-standard-4 node, so the machine type is fixed
+#                  and no other job shares it. Set the repository variable
+#                  PERF_RUNNER to use another pool. Results are compared
+#                  only against a baseline from the same CPU model and
+#                  layout.
+#   k6             The k6 load tests from test/load/ against a kind cluster,
+#                  once per storage backend. This checks the deployed
+#                  manifests under load; everything shares the runner's
+#                  CPUs, so its numbers are not comparable between runs.
+#
+# None of them runs on every push. They run nightly and on demand.
+# go-benchmarks and k6 also run on pull requests labeled "performance";
+# linux-sweep never does, because its self-hosted runners sit in Datum's
+# production GKE cluster and a pull request (possibly from a fork) must not
+# run code there. Results are published in the job summary
+# and uploaded as artifacts. Shared runners are too noisy for latency
+# limits, so the k6 job gates only on correctness under load; see
+# test/load/ci/summarize.sh.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      backend:
+        description: Storage backend to load-test
+        type: choice
+        options: [all, etcd, postgres, dual]
+        default: all
+      tenants:
+        description: Tenants provisioned by setup-tenants.js
+        default: "20"
+      definitions:
+        description: QuotaDefinitions (resource types) per tenant
+        default: "3"
+      vus:
+        description: Concurrent k6 virtual users for the throughput test
+        default: "10"
+      duration:
+        description: Length of the throughput and read tests
+        default: "2m"
+      benchtime:
+        description: go test -benchtime for each benchmark
+        default: "5s"
+      sweep_levels:
+        description: Client counts for the Linux sweep
+        default: "10 30 60 120"
+      sweep_repeats:
+        description: Runs per client count in the Linux sweep
+        default: "3"
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-benchmarks:
+    name: Go benchmarks (Postgres write path)
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'performance') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'performance'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: quota_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quota_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/quota_test?sslmode=disable
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Run benchmarks
+        run: |
+          go test -run '^$' -bench . -benchtime "${{ inputs.benchtime || '5s' }}" -count 3 \
+            ./internal/storage/postgres/ | tee "$RUNNER_TEMP/bench.txt"
+          # The benchmarks skip themselves without POSTGRES_DSN; a run with
+          # no results means the database wasn't reachable.
+          if ! grep -q 'ops/s' "$RUNNER_TEMP/bench.txt"; then
+            echo "::error::no benchmark produced results"
+            exit 1
+          fi
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "### Go benchmarks: Postgres write path"
+            echo
+            echo "Postgres 16 service container with default settings (fsync and synchronous_commit on)."
+            echo
+            echo '```'
+            grep -E '^(Benchmark|goos|goarch|cpu)' "$RUNNER_TEMP/bench.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: go-benchmarks
+          path: ${{ runner.temp }}/bench.txt
+          if-no-files-found: ignore
+
+  linux-sweep:
+    name: Linux claim throughput (pinned CPUs)
+    # Self-hosted runners: scheduled and manual runs only, never pull
+    # requests (see the header). workflow_dispatch needs write access to the
+    # repository, so only maintainers can start it, on a branch of this repo.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ vars.PERF_RUNNER || 'milo-linux' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      # Reading the previous scheduled run's results for the baseline.
+      actions: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install k6
+        uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1.3.0
+      - name: Build quota and fetch envtest binaries
+        run: |
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/quota" ./cmd/quota
+          go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3-0.20261012174806-32759fab3119 \
+            use 1.34.x -p path --bin-dir "$RUNNER_TEMP/envtest" > "$RUNNER_TEMP/envtest-path"
+          echo "KUBEBUILDER_ASSETS=$(cat "$RUNNER_TEMP/envtest-path")" >> "$GITHUB_ENV"
+      - name: Fetch baseline from the last scheduled run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow performance.yaml --branch main --event schedule \
+            --status success --limit 1 --json databaseId -q '.[0].databaseId' || true)
+          if [ -n "$id" ] && gh run download "$id" -R "$GITHUB_REPOSITORY" -n linux-sweep -D "$RUNNER_TEMP/baseline"; then
+            echo "baseline: run $id"
+          else
+            echo "no baseline available"
+          fi
+      - name: Run sweep
+        env:
+          QUOTA_BIN: ${{ runner.temp }}/quota
+          VUS_LEVELS: ${{ inputs.sweep_levels || '10 30 60 120' }}
+          REPEATS: ${{ inputs.sweep_repeats || '3' }}
+        run: test/load/ci/linux-sweep.sh "$RUNNER_TEMP/sweep"
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/sweep/results.json" ]; then
+            test/load/ci/summarize-sweep.sh "$RUNNER_TEMP/sweep/results.json" "$RUNNER_TEMP/baseline/results.json" \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          for f in serve.log cm.log kas.log etcd.log; do
+            echo "== $f"; tail -100 "$RUNNER_TEMP/sweep/work/$f" 2>/dev/null || true
+          done
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-sweep
+          path: |
+            ${{ runner.temp }}/sweep/results.json
+            ${{ runner.temp }}/sweep/runs.jsonl
+            ${{ runner.temp }}/sweep/work/*.log
+          if-no-files-found: ignore
+
+  k6:
+    name: k6 load tests (${{ matrix.backend }})
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'performance') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'performance'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.backend != 'all') && format('["{0}"]', inputs.backend) || '["etcd","postgres","dual"]') }}
+    env:
+      QUOTA_IMAGE: ghcr.io/datum-cloud/quota:dev
+      TENANT_COUNT: ${{ inputs.tenants || '20' }}
+      DEFINITION_COUNT: ${{ inputs.definitions || '3' }}
+      VUS: ${{ inputs.vus || '10' }}
+      DURATION: ${{ inputs.duration || '2m' }}
+      # The default summary export has no p(99).
+      K6_SUMMARY_TREND_STATS: "avg,min,med,max,p(90),p(95),p(99)"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Build quota image
+        run: docker build -t "$QUOTA_IMAGE" .
+      - name: Bootstrap kind cluster (cert-manager, Flux, Kyverno) and load image
+        uses: datum-cloud/test-infra/.github/actions/kind-bootstrap@v0.6.0
+        with:
+          cluster_name: test-infra
+          images: ghcr.io/datum-cloud/quota:dev
+      - name: Install observability stack
+        # The dev overlays under the perf-* overlays include
+        # config/components/observability, which needs the ServiceMonitor,
+        # PrometheusRule and GrafanaDashboard CRDs.
+        working-directory: test-infra
+        run: task install-observability CLUSTER_NAME=test-infra
+      - name: Install NATS
+        run: |
+          kubectl apply -k config/dependencies/nats
+          kubectl -n nats-system wait --for=condition=ready helmrelease/nats --timeout=300s
+          kubectl -n nats-system wait --for=condition=ready helmrelease/nack --timeout=300s
+      - name: Deploy quota (perf-${{ matrix.backend }} overlay)
+        env:
+          BACKEND: ${{ matrix.backend }}
+        run: |
+          kubectl apply -k "config/overlays/perf-${BACKEND}"
+          if [ "$BACKEND" != postgres ]; then
+            kubectl -n quota-system wait --for=condition=ready helmrelease/etcd --timeout=300s
+          fi
+          if [ "$BACKEND" != etcd ]; then
+            kubectl -n quota-system wait --for=condition=ready helmrelease/postgres --timeout=600s
+            kubectl -n quota-system wait --for=condition=complete job/postgres-migrate --timeout=300s
+          fi
+          kubectl -n quota-system wait --for=condition=ready pod -l app=quota-apiserver --timeout=300s
+          kubectl -n quota-system wait --for=condition=ready pod -l app=quota-controller-manager --timeout=300s
+          kubectl wait --for=condition=Available apiservice/v1alpha1.quota.miloapis.com --timeout=180s
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install k6
+        uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1.3.0
+      - name: Start kubectl proxy
+        run: |
+          kubectl proxy --port=8001 > "$RUNNER_TEMP/kubectl-proxy.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:8001/apis/quota.miloapis.com/v1alpha1 > /dev/null && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/kubectl-proxy.log"
+          exit 1
+      - name: Provision tenants
+        run: |
+          # The checkout carries an old results file; clear it so a failed
+          # run can't be summarized from stale numbers.
+          rm -rf test/load/results
+          task -t test/load/Taskfile.yaml setup \
+            TENANT_COUNT="$TENANT_COUNT" DEFINITION_COUNT="$DEFINITION_COUNT" GRANT_AMOUNT=1000
+          test/load/ci/wait-for-buckets.sh "$((TENANT_COUNT * DEFINITION_COUNT))" 300
+      - name: Claim throughput
+        # Thresholds are applied by summarize.sh, not by k6, so a slow
+        # runner still produces a full result set.
+        env:
+          K6_NO_THRESHOLDS: "true"
+        run: |
+          task -t test/load/Taskfile.yaml throughput \
+            TENANT_COUNT="$TENANT_COUNT" DEFINITION_COUNT="$DEFINITION_COUNT" VUS="$VUS" DURATION="$DURATION"
+      - name: Read latency
+        env:
+          K6_NO_THRESHOLDS: "true"
+        run: |
+          task -t test/load/Taskfile.yaml reads \
+            TENANT_COUNT="$TENANT_COUNT" DEFINITION_COUNT="$DEFINITION_COUNT" VUS="$VUS" DURATION="$DURATION"
+      - name: Publish summary and apply gates
+        if: always()
+        run: |
+          set -o pipefail
+          test/load/ci/summarize.sh "${{ matrix.backend }}" test/load/results | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Dump quota state on failure
+        if: failure()
+        run: |
+          kubectl -n quota-system get pods,jobs,helmreleases -o wide || true
+          kubectl -n quota-system logs -l app=quota-apiserver --tail=200 || true
+          kubectl -n quota-system logs -l app=quota-controller-manager --tail=200 || true
+          kubectl -n quota-system logs job/postgres-migrate --tail=100 || true
+          kubectl get quotabuckets -A | head -50 || true
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: k6-${{ matrix.backend }}
+          path: test/load/results/
+          if-no-files-found: ignore

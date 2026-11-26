@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Milo integration (first consumer of the quota service). This is a
+# Component and cannot be applied directly; use ./standalone for
+# "kubectl apply -k", or list this directory under `components:` of a
+# Milo overlay.
+#
+# ./enforcement-webhook is not listed here: it narrows the optional
+# enforcement webhook to Milo's kinds and only applies to an overlay that
+# also includes config/components/enforcement-webhook.
+components:
+  - iam
+  - rbac
+  - telemetry
+  - registrations
+  - claim-policies

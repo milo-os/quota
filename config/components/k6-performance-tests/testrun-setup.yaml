@@ -1,0 +1,34 @@
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: quota-perf-setup
+  namespace: quota-system
+spec:
+  parallelism: 1
+  separate: false
+  cleanup: post
+  script:
+    configMap:
+      name: quota-k6-test-scripts
+      file: setup-tenants.js
+  runner:
+    image: grafana/k6:latest
+    serviceAccountName: quota-k6-runner
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    env:
+      - name: QUOTA_API_URL
+        value: "https://kubernetes.default.svc.cluster.local:443"
+      - name: K6_INSECURE_SKIP_TLS_VERIFY
+        value: "true"
+      - name: TENANT_COUNT
+        value: "50"
+      - name: DEFINITION_COUNT
+        value: "5"
+      - name: GRANT_AMOUNT
+        value: "1000"

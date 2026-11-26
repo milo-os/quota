@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Normalizes settings that skew performance numbers between overlays, so
+# the perf-* overlays measure the storage backend and nothing else. The dev
+# overlays it is layered on log at different verbosities (dev and dev-dual
+# at 4, dev-postgres at 0), and level-4 request tracing alone costs a
+# measurable share of apiserver CPU.
+
+patches:
+  - path: apiserver-log-level.yaml

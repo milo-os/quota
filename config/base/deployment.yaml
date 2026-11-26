@@ -1,0 +1,197 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-apiserver
+  namespace: quota-system
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: quota-apiserver
+  template:
+    metadata:
+      labels:
+        app: quota-apiserver
+    spec:
+      serviceAccountName: quota-apiserver
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: apiserver
+        image: ghcr.io/datum-cloud/quota:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+          capabilities:
+            drop:
+            - ALL
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        command:
+        - /quota
+        - serve
+        args:
+        - --secure-port=$(SECURE_PORT)
+        - --tls-cert-file=$(TLS_CERT_FILE)
+        - --tls-private-key-file=$(TLS_PRIVATE_KEY_FILE)
+        - --quota-storage-backend=$(STORAGE_BACKEND)
+        - --postgres-dsn=$(POSTGRES_DSN)
+        - --etcd-servers=$(ETCD_SERVERS)
+        - --etcd-prefix=$(ETCD_PREFIX)
+        - --etcd-cafile=$(ETCD_CAFILE)
+        - --etcd-certfile=$(ETCD_CERTFILE)
+        - --etcd-keyfile=$(ETCD_KEYFILE)
+        - --kubeconfig=$(KUBECONFIG)
+        - --authentication-kubeconfig=$(AUTHENTICATION_KUBECONFIG)
+        - --authentication-skip-lookup=$(AUTHENTICATION_SKIP_LOOKUP)
+        - --authentication-tolerate-lookup-failure=$(AUTHENTICATION_TOLERATE_LOOKUP_FAILURE)
+        - --authorization-kubeconfig=$(AUTHORIZATION_KUBECONFIG)
+        - --authorization-always-allow-paths=$(AUTHORIZATION_ALWAYS_ALLOW_PATHS)
+        - --requestheader-client-ca-file=$(REQUESTHEADER_CLIENT_CA_FILE)
+        - --requestheader-username-headers=$(REQUESTHEADER_USERNAME_HEADERS)
+        - --requestheader-group-headers=$(REQUESTHEADER_GROUP_HEADERS)
+        - --requestheader-uid-headers=$(REQUESTHEADER_UID_HEADERS)
+        - --requestheader-extra-headers-prefix=$(REQUESTHEADER_EXTRA_HEADERS_PREFIX)
+        - --logging-format=$(LOGGING_FORMAT)
+        - -v=$(LOG_LEVEL)
+        env:
+        - name: SECURE_PORT
+          value: "8443"
+        - name: TLS_CERT_FILE
+          value: "/var/run/quota-apiserver/tls/tls.crt"
+        - name: TLS_PRIVATE_KEY_FILE
+          value: "/var/run/quota-apiserver/tls/tls.key"
+        - name: STORAGE_BACKEND
+          value: "etcd"
+        - name: ETCD_SERVERS
+          value: "http://etcd.quota-system.svc.cluster.local:2379"
+        - name: ETCD_PREFIX
+          value: "/registry/quota.miloapis.com"
+        - name: ETCD_CAFILE
+          value: ""
+        - name: ETCD_CERTFILE
+          value: ""
+        - name: ETCD_KEYFILE
+          value: ""
+        # Key dsn of the postgres-credentials Secret, which base does not
+        # define (see kustomization.yaml). Optional so the etcd backend
+        # runs without it.
+        - name: POSTGRES_DSN
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: dsn
+              optional: true
+        - name: NATS_URL
+          value: ""
+        - name: KUBECONFIG
+          value: ""
+        - name: AUTHENTICATION_KUBECONFIG
+          value: ""
+        - name: AUTHENTICATION_SKIP_LOOKUP
+          value: "false"
+        - name: AUTHENTICATION_TOLERATE_LOOKUP_FAILURE
+          value: "false"
+        - name: AUTHORIZATION_KUBECONFIG
+          value: ""
+        - name: AUTHORIZATION_ALWAYS_ALLOW_PATHS
+          value: "/healthz,/readyz,/livez"
+        - name: REQUESTHEADER_CLIENT_CA_FILE
+          value: ""
+        - name: REQUESTHEADER_USERNAME_HEADERS
+          value: "X-Remote-User"
+        - name: REQUESTHEADER_GROUP_HEADERS
+          value: "X-Remote-Group"
+        - name: REQUESTHEADER_UID_HEADERS
+          value: "X-Remote-Uid"
+        - name: REQUESTHEADER_EXTRA_HEADERS_PREFIX
+          value: "X-Remote-Extra-"
+        - name: LOGGING_FORMAT
+          value: "json"
+        - name: LOG_LEVEL
+          value: "2"
+        resources:
+          requests:
+            cpu: 250m
+            # Round-7 CPU bump to 2000m raised apiserver throughput ~4x;
+            # matching the request bump keeps scheduling headroom proportional
+            # without making requests == limits (which would flip the pod to
+            # Guaranteed QoS and hurt dev-cluster bin-packing).
+            memory: 256Mi
+          limits:
+            # Round-7 profiling found the apiserver CFS-throttled at the
+            # previous limit, capping throughput across all storage backends
+            # and masking the perf gains from rounds 1..6. 2000m gives the
+            # apiserver headroom to actually use those optimizations.
+            cpu: 2000m
+            # Round-7 CPU bump to 2000m raised throughput ~4x, so the working
+            # set grew proportionally and the k6 load run busted the 512Mi
+            # ceiling at ~2:25. 1Gi gives 4x headroom plus a buffer for the
+            # new pgxpool prepared-statement caches and the native rest.Storage
+            # per-watch state.
+            memory: 1Gi
+        # Phase-2 startup paths (NativePool init, custom rest.Storage wiring,
+        # migration verification) push apiserver boot to ~20-30s in the
+        # current image. initialDelaySeconds=60 and failureThreshold=6 give
+        # the listener enough warmup time before the kubelet marks the pod
+        # unhealthy and crash-loops it.
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /var/run/quota-apiserver/tls
+          readOnly: true
+        - name: control-plane-ca
+          mountPath: /etc/kubernetes/pki/requestheader
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      # Serving certificate from the quota CA. The kube-apiserver trusts
+      # that CA for both the APIService and the enforcement webhook because
+      # cert-manager's cainjector copies it into their caBundle fields.
+      # config/components/cert-manager-ca creates the Issuer; without that
+      # component, provide an Issuer named quota-ca-issuer in quota-system
+      # and point both cert-manager.io/inject-ca-from annotations at its CA.
+      - name: tls-certs
+        csi:
+          driver: csi.cert-manager.io
+          readOnly: true
+          volumeAttributes:
+            csi.cert-manager.io/issuer-name: quota-ca-issuer
+            csi.cert-manager.io/issuer-kind: Issuer
+            csi.cert-manager.io/common-name: quota-apiserver.quota-system.svc
+            csi.cert-manager.io/dns-names: "quota-apiserver,quota-apiserver.quota-system,quota-apiserver.quota-system.svc,quota-apiserver.quota-system.svc.cluster.local"
+            csi.cert-manager.io/duration: "8760h"
+            csi.cert-manager.io/renew-before: "720h"
+            csi.cert-manager.io/fs-group: "65532"
+      - name: control-plane-ca
+        configMap:
+          name: control-plane-ca
+          optional: true
+      - name: tmp
+        emptyDir: {}

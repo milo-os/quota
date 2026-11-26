@@ -1,0 +1,5 @@
+self-hosted-runner:
+  # ARC runner scale sets in datum-cloud/infra
+  # (infrastructure/actions-runner-controller/production).
+  labels:
+    - milo-linux

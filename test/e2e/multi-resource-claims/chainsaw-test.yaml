@@ -1,0 +1,168 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: multi-resource-claims
+spec:
+  description: |
+    Tests QuotaClaims that request multiple resource types simultaneously.
+
+    This test verifies:
+    - Claims can request multiple different resource types in one claim
+    - All requested resources must be available for claim to be granted
+    - Partial availability results in claim denial
+    - Duplicate resource types in a single claim are rejected
+    - Multi-resource claims properly consume from multiple grants
+
+  steps:
+    # Setup base infrastructure with multiple resource types
+    - name: setup-base-infrastructure
+      description: |
+        Register multiple resource types (projects, users, clusters) for testing multi-resource claims.
+      try:
+        # Setup project resource registration
+        - apply:
+            file: 01-resource-registration-projects.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: multi-test-projects-per-org
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        # Setup additional resource registrations
+        - apply:
+            file: 01-multi-resource-registrations.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: multi-test-users-per-org
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: multi-test-clusters-per-org
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    # Create namespace for multi-resource testing
+    - name: setup-multi-resource-namespace
+      description: |
+        Create Namespace that will be the quota consumer for testing multi-resource claims.
+      try:
+        - apply:
+            file: 02-multi-resource-namespace.yaml
+        - wait:
+            apiVersion: v1
+            kind: Namespace
+            name: quota-e2e-multi-resource
+            timeout: 30s
+            for:
+              jsonPath:
+                path: '{.status.phase}'
+                value: Active
+
+    # Create multiple resource grants
+    - name: setup-multi-resource-grants
+      description: |
+        Create QuotaGrants for multiple resource types (users, clusters, projects).
+        Each grant provides allowance for a different resource type.
+      try:
+        - apply:
+            file: multi-resource-grants.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaGrant
+            name: multi-multi-test-multi-resource-org-user-grant
+            namespace: quota-e2e-multi-resource
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaGrant
+            name: multi-multi-test-multi-resource-org-cluster-grant
+            namespace: quota-e2e-multi-resource
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaGrant
+            name: multi-multi-test-multi-resource-org-project-grant
+            namespace: quota-e2e-multi-resource
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    # Create ConfigMaps referenced by claim resourceRefs so the ownership controller
+    # does not reap the claims as orphans.
+    - name: create-resource-ref-targets
+      description: |
+        Create ConfigMaps that are referenced by QuotaClaim resourceRef fields.
+        Without these, the ownership controller deletes granted claims after 30s.
+      try:
+        - apply:
+            file: test-data/resource-ref-configmaps.yaml
+
+    # Test successful multi-resource claim
+    - name: multi-test-multi-resource-claim-success
+      description: |
+        Create a QuotaClaim requesting multiple resource types where all are available.
+        The claim should be granted since all requested resources have sufficient quota.
+      try:
+        - apply:
+            file: test-data/multi-resource-claim.yaml
+        - assert:
+            timeout: 60s
+            file: assertions/assert-multi-resource-claim.yaml
+
+    # Test partial denial multi-resource claim
+    - name: multi-test-multi-resource-claim-partial-deny
+      description: |
+        Create a QuotaClaim requesting multiple resources where one type is unavailable.
+        The entire claim should be denied (all-or-nothing semantics).
+      try:
+        - apply:
+            file: test-data/multi-resource-claim-partial-deny.yaml
+        - assert:
+            timeout: 60s
+            file: assertions/assert-multi-resource-claim-partial-deny.yaml
+
+    # Test invalid duplicate resource claim
+    - name: test-invalid-duplicate-claim
+      description: |
+        Attempt to create a QuotaClaim with duplicate resource types.
+        This should be rejected by API validation.
+      try:
+        - apply:
+            file: test-data/invalid-duplicate-resource-claim.yaml
+            expect:
+              - check:
+                  ($error != null): true
+
+    # Clean up the test namespace
+    - name: cleanup-test-namespace
+      description: |
+        Delete the test Namespace to clean up test state.
+      try:
+        - delete:
+            timeout: 60s
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: quota-e2e-multi-resource

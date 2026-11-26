@@ -1,0 +1,96 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-manager
+rules:
+# Core quota resources managed by the controller manager.
+- apiGroups: ["quota.miloapis.com"]
+  resources:
+  - quotadefinitions
+  - quotagrants
+  - quotabuckets
+  - grantcreationpolicies
+  - claimcreationpolicies
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: ["quota.miloapis.com"]
+  resources:
+  - quotadefinitions/status
+  - quotagrants/status
+  - quotabuckets/status
+  - grantcreationpolicies/status
+  - claimcreationpolicies/status
+  verbs: ["get", "update", "patch"]
+# QuotaClaim lifecycle controllers need delete to garbage-collect claims.
+- apiGroups: ["quota.miloapis.com"]
+  resources: ["quotaclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["quota.miloapis.com"]
+  resources: ["quotaclaims/status"]
+  verbs: ["get", "update", "patch"]
+# QuotaBucket creation is performed by the grant controller.
+- apiGroups: ["quota.miloapis.com"]
+  resources: ["quotabuckets"]
+  verbs: ["delete"]
+# Leader election via coordination API.
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+# Event recording.
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: ["events.k8s.io"]
+  resources: ["events"]
+  verbs: ["get", "list", "create", "update", "patch"]
+# The metrics endpoint authenticates scrapers with TokenReview and
+# authorizes them with SubjectAccessReview (--metrics-secure).
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+- apiGroups: ["authorization.k8s.io"]
+  resources: ["subjectaccessreviews"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-manager
+subjects:
+- kind: ServiceAccount
+  name: quota-controller-manager
+  namespace: quota-system
+---
+# Read access to the kinds that GrantCreationPolicies and ClaimCreationPolicies
+# trigger on. The policy executors watch those kinds and the ownership
+# controller reads a claim's resourceRef, but the set of kinds is only known
+# from the consumer's policies, so this role starts empty. The Kubernetes
+# clusterrole-aggregation controller fills it from every ClusterRole labeled
+# quota.miloapis.com/aggregate-to-controller-manager: "true". A consumer
+# ships one such ClusterRole listing get, list and watch for its trigger
+# kinds; config/milo/rbac is Milo's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-controller-manager-policy-targets
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        quota.miloapis.com/aggregate-to-controller-manager: "true"
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-controller-manager-policy-targets
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-controller-manager-policy-targets
+subjects:
+- kind: ServiceAccount
+  name: quota-controller-manager
+  namespace: quota-system

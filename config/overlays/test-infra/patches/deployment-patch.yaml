@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-apiserver
+  namespace: quota-system
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - name: apiserver
+        # Test-infra specific configuration
+        imagePullPolicy: Never  # Use images loaded via kind load
+        env:
+        - name: LOG_LEVEL
+          value: "4"  # Verbosity level: 0=info, 2=debug, 4=trace
+        # Enable NATS for event streaming
+        - name: NATS_URL
+          value: "nats://nats.nats-system.svc.cluster.local:4222"
+        resources:
+          requests:
+            cpu: 100m
+            # Round-7 CPU bump to 2000m raised throughput ~4x; doubling the
+            # request keeps scheduling headroom proportional while staying
+            # below the limit (Burstable QoS).
+            memory: 128Mi
+          limits:
+            # Round-7 profiling found the apiserver CFS-throttled at 500m,
+            # capping throughput during perf runs executed via test-infra.
+            # Matches the dev overlay bump.
+            cpu: 2000m
+            # Round-7 CPU bump to 2000m raised throughput ~4x, so the working
+            # set grew proportionally and the k6 load run busted the 256Mi
+            # ceiling at ~2:25. 1Gi gives 4x headroom plus a buffer for the
+            # new pgxpool prepared-statement caches and the native rest.Storage
+            # per-watch state.
+            memory: 1Gi

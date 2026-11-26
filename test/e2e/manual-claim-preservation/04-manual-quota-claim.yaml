@@ -1,0 +1,30 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: manual-claim-test-claim
+  namespace: quota-e2e-manual-claim
+  labels:
+    test.miloapis.com/scenario: "manual-claim-preservation"
+    # Intentionally no auto-created markers:
+    #   quota.miloapis.com/auto-created: "true"
+    #   quota.miloapis.com/created-by: "claim-creation-plugin"
+    # This simulates a claim created directly by an external service or
+    # operator, not by the quota enforcement admission plugin.
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: quota-e2e-manual-claim
+  requests:
+    - resourceType: "test.manual-claim.miloapis.com/configmaps"
+      amount: 1
+  # resourceRef points to a ConfigMap that does not exist. Before the fix for
+  # issue #642, the ownership controller resolved this via the REST mapper,
+  # received NotFound, waited past the orphan grace period, then deleted the
+  # claim. After the fix, the controller skips this claim entirely because it
+  # lacks the auto-created markers.
+  resourceRef:
+    apiGroup: ""
+    kind: ConfigMap
+    name: non-existent-configmap-for-ownership-test
+    namespace: quota-e2e-manual-claim

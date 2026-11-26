@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-immutable-definition
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.immutable.datumapis.com/original"
+  description: "Definition to test immutability"
+  baseUnit: "item"
+  displayUnit: "items"
+  unitConversionFactor: 1
+  claimingResources:
+    - apiGroup: test.datumapis.com
+      kind: TestItem

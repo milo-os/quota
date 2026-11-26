@@ -1,0 +1,67 @@
+apiVersion: iam.miloapis.com/v1alpha1
+kind: Role
+metadata:
+  name: quota.miloapis.com-admin
+  namespace: milo-system
+  annotations:
+    kubernetes.io/display-name: Quota Admin
+    kubernetes.io/description: Full access to quota resources including quota definitions, grants, claims, quota buckets, and creation policies
+  labels:
+    quota.miloapis.com/role-type: admin
+    quota.miloapis.com/service: quota
+spec:
+  launchStage: Beta
+  includedPermissions:
+    # QuotaDefinition permissions
+    - quota.miloapis.com/quotadefinitions.create
+    - quota.miloapis.com/quotadefinitions.get
+    - quota.miloapis.com/quotadefinitions.list
+    - quota.miloapis.com/quotadefinitions.update
+    - quota.miloapis.com/quotadefinitions.delete
+    - quota.miloapis.com/quotadefinitions.patch
+    - quota.miloapis.com/quotadefinitions.watch
+
+    # QuotaGrant permissions
+    - quota.miloapis.com/quotagrants.create
+    - quota.miloapis.com/quotagrants.get
+    - quota.miloapis.com/quotagrants.list
+    - quota.miloapis.com/quotagrants.update
+    - quota.miloapis.com/quotagrants.delete
+    - quota.miloapis.com/quotagrants.patch
+    - quota.miloapis.com/quotagrants.watch
+
+    # QuotaClaim permissions
+    - quota.miloapis.com/quotaclaims.create
+    - quota.miloapis.com/quotaclaims.get
+    - quota.miloapis.com/quotaclaims.list
+    - quota.miloapis.com/quotaclaims.update
+    - quota.miloapis.com/quotaclaims.delete
+    - quota.miloapis.com/quotaclaims.patch
+    - quota.miloapis.com/quotaclaims.watch
+
+    # QuotaBucket permissions
+    - quota.miloapis.com/quotabuckets.create
+    - quota.miloapis.com/quotabuckets.get
+    - quota.miloapis.com/quotabuckets.list
+    - quota.miloapis.com/quotabuckets.update
+    - quota.miloapis.com/quotabuckets.delete
+    - quota.miloapis.com/quotabuckets.patch
+    - quota.miloapis.com/quotabuckets.watch
+
+    # GrantCreationPolicy permissions
+    - quota.miloapis.com/grantcreationpolicies.create
+    - quota.miloapis.com/grantcreationpolicies.get
+    - quota.miloapis.com/grantcreationpolicies.list
+    - quota.miloapis.com/grantcreationpolicies.update
+    - quota.miloapis.com/grantcreationpolicies.delete
+    - quota.miloapis.com/grantcreationpolicies.patch
+    - quota.miloapis.com/grantcreationpolicies.watch
+
+    # ClaimCreationPolicy permissions
+    - quota.miloapis.com/claimcreationpolicies.create
+    - quota.miloapis.com/claimcreationpolicies.get
+    - quota.miloapis.com/claimcreationpolicies.list
+    - quota.miloapis.com/claimcreationpolicies.update
+    - quota.miloapis.com/claimcreationpolicies.delete
+    - quota.miloapis.com/claimcreationpolicies.patch
+    - quota.miloapis.com/claimcreationpolicies.watch

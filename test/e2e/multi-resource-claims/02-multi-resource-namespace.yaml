@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quota-e2e-multi-resource
+  annotations:
+    kubernetes.io/display-name: "Test Multi-Resource Quota Namespace"
+    kubernetes.io/description: "Namespace for testing multi-resource quota enforcement"
+  labels:
+    test.miloapis.com/quota: "multi-resource"
+    test.miloapis.com/scenario: "multi-resource-claims"
+    quota.miloapis.com/test-tier: "standard"

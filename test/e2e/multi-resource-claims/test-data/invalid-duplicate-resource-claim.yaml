@@ -1,0 +1,23 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: test-duplicate-resource-claim
+  namespace: quota-e2e-multi-resource
+  labels:
+    test.miloapis.com/scenario: duplicate-resource-validation
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: quota-e2e-multi-resource
+  requests:
+    - resourceType: "test.miloapis.com/projects/subresource"
+      amount: 2
+    - resourceType: "test.multicluster.miloapis.com/users"
+      amount: 5
+    - resourceType: "test.miloapis.com/projects/subresource"  # Duplicate!
+      amount: 3
+  resourceRef:
+    apiGroup: ""
+    kind: ConfigMap
+    name: test-duplicate-resource-claim

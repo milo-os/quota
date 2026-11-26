@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quota-e2e-core-basic
+  annotations:
+    kubernetes.io/display-name: "Test Basic Quota Namespace"
+    kubernetes.io/description: "Namespace for testing basic quota enforcement"
+  labels:
+    test.miloapis.com/quota: "basic"
+    test.miloapis.com/scenario: "core-functionality"
+    quota.miloapis.com/test-tier: "standard"

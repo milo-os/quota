@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: core-test-basic-quota-org-grant
+  namespace: quota-e2e-core-basic
+  labels:
+    test.miloapis.com/quota: "basic"
+    test.miloapis.com/scenario: "core-functionality"
+spec:
+  consumerRef:
+    apiGroup: ""
+    kind: Namespace
+    name: quota-e2e-core-basic
+  allowances:
+    - resourceType: "test.corefunction.miloapis.com/projects"
+      buckets:
+        - amount: 4

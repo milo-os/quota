@@ -1,0 +1,114 @@
+name: Perf A/B (temporary)
+
+# Temporary: validates the bucket-disjoint batching and the
+# max_parallel_workers_per_gather=0 session setting on GitHub's Linux
+# runners. Remove this file before the code goes to main.
+#
+# Each runner builds the branch (NEW) and a baseline with both changes
+# switched off (BASE), then runs the Linux sweep alternately
+# BASE, NEW, BASE, NEW on the same machine, so machine-to-machine variation
+# cancels. Pushes to perf/** branches only: only people with write access
+# can push here, so no fork code reaches the self-hosted runners.
+
+on:
+  push:
+    branches: ["perf/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    name: A/B sweep (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, milo-linux]
+    env:
+      VUS_LEVELS: "10 20 30 60"
+      REPEATS: "2"
+      DURATION: "40s"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install k6
+        uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1.3.0
+      - name: Build NEW and BASE, fetch envtest binaries
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/quota-new" ./cmd/quota
+          cp -a . "$RUNNER_TEMP/src-base"
+          cd "$RUNNER_TEMP/src-base/internal/storage/postgres"
+          sed -i '/"max_parallel_workers_per_gather": "0",/d' session.go
+          sed -i 's/^func (b \*batcher) conflictsLocked(op \*batchOp) bool {$/&\n\treturn false \/\/ BASE: no bucket-disjoint batching/' batcher.go
+          grep -q 'BASE: no bucket-disjoint batching' batcher.go
+          if grep -q max_parallel_workers_per_gather session.go; then exit 1; fi
+          cd "$RUNNER_TEMP/src-base"
+          CGO_ENABLED=0 go build -o "$RUNNER_TEMP/quota-base" ./cmd/quota
+          cd "$GITHUB_WORKSPACE"
+          go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3-0.20261012174806-32759fab3119 \
+            use 1.34.x -p path --bin-dir "$RUNNER_TEMP/envtest" > "$RUNNER_TEMP/envtest-path"
+          echo "KUBEBUILDER_ASSETS=$(cat "$RUNNER_TEMP/envtest-path")" >> "$GITHUB_ENV"
+      - name: Machine
+        run: |
+          nproc; lscpu | grep -E 'Model name|Thread|Core|Socket' || true
+          free -g; df -h "$RUNNER_TEMP"
+      - name: Run sweeps (BASE, NEW, BASE, NEW)
+        run: |
+          set -euo pipefail
+          for run in base-1 new-1 base-2 new-2; do
+            build=${run%-*}
+            echo "::group::$run"
+            QUOTA_BIN="$RUNNER_TEMP/quota-$build" test/load/ci/linux-sweep.sh "$RUNNER_TEMP/ab/$run" || echo "$run failed"
+            # Postgres data grows ~1 GB/min at high load; keep only results.
+            rm -rf "$RUNNER_TEMP/ab/$run/work/pgdata"
+            df -h "$RUNNER_TEMP" | tail -1
+            echo "::endgroup::"
+          done
+      - name: Publish summary
+        if: always()
+        run: |
+          cd "$RUNNER_TEMP/ab"
+          {
+            echo "## BASE vs NEW on ${{ matrix.runner }}"
+            echo
+            echo "Medians across both pairs of each run's per-level median. Create latency in ms."
+            echo
+            echo "| Clients | Claims/s BASE | Claims/s NEW | Δ | p95 BASE | p95 NEW | p99 BASE | p99 NEW |"
+            echo "|---:|---:|---:|---:|---:|---:|---:|---:|"
+            jq -rn '
+              def med: sort | if length == 0 then null elif length % 2 == 1 then .[length/2|floor] else (.[length/2-1] + .[length/2]) / 2 end;
+              def r: if . == null then "n/a" else (. * 10 | round / 10 | tostring) end;
+              [inputs | {build: (input_filename | split("/")[-2] | split("-")[0]), levels}]
+              | [.[] | .build as $b | .levels[] | . + {build: $b}]
+              | group_by(.vus)[]
+              | . as $l
+              | ([$l[] | select(.build == "base")]) as $bs | ([$l[] | select(.build == "new")]) as $ns
+              | ($bs | map(.claims_per_s) | med) as $bc | ($ns | map(.claims_per_s) | med) as $nc
+              | "| \($l[0].vus) | \($bc | r) | \($nc | r) | \(if $bc and $nc then (($nc / $bc - 1) * 100 | r) + "%" else "n/a" end) | \($bs | map(.create_p95_ms) | med | r) | \($ns | map(.create_p95_ms) | med | r) | \($bs | map(.create_p99_ms) | med | r) | \($ns | map(.create_p99_ms) | med | r) |"
+            ' ./*/results.json
+            echo
+            for run in base-1 new-1 base-2 new-2; do
+              if [ -f "$run/results.json" ]; then
+                echo "<details><summary>$run</summary>"; echo
+                "$GITHUB_WORKSPACE/test/load/ci/summarize-sweep.sh" "$run/results.json"
+                echo; echo "</details>"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: perf-ab-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/ab/*/results.json
+            ${{ runner.temp }}/ab/*/runs.jsonl
+            ${{ runner.temp }}/ab/*/work/*.log
+          if-no-files-found: ignore

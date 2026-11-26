@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: pre-created-test-project-claim
+  namespace: quota-e2e-pre-created
+spec:
+  consumerRef:
+    kind: Namespace
+    apiGroup: ""
+    name: quota-e2e-pre-created
+  requests:
+    - resourceType: "pre-created-test/projects-per-org"
+      amount: 1
+  resourceRef:
+    apiGroup: ""
+    kind: ConfigMap
+    name: pre-created-test-project

@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-controller-manager
+  namespace: quota-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: controller-manager
+        imagePullPolicy: Never
+        env:
+        - name: STORAGE_BACKEND
+          value: "postgres"

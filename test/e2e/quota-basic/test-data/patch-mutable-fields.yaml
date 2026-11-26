@@ -1,0 +1,15 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-immutable-definition
+spec:
+  # Updating mutable fields only - should succeed
+  description: "Updated description - this is allowed"
+  baseUnit: "thing"
+  displayUnit: "things"
+  unitConversionFactor: 1000
+  claimingResources:
+    - apiGroup: test.datumapis.com
+      kind: TestItem
+    - apiGroup: test.datumapis.com
+      kind: AnotherTestItem

@@ -1,0 +1,22 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-valid-definition
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  type: "Entity"
+  resourceType: "test.validation.datumapis.com/projects"
+  description: "Valid test definition for validation tests"
+  baseUnit: "project"
+  displayUnit: "projects"
+  unitConversionFactor: 1
+  claimingResources:
+    - kind: ConfigMap
+status:
+  conditions:
+    - type: Active
+      status: 'True'
+      reason: RegistrationActive
+      message: "The registration is active and resource grants and claims can now be created for this resource type."

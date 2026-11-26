@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-test-multi-resource-claim
+  namespace: quota-e2e-multi-resource
+data:
+  purpose: "resource-ref target for multi-resource-claims e2e test"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: multi-test-multi-resource-claim-partial-deny
+  namespace: quota-e2e-multi-resource
+data:
+  purpose: "resource-ref target for multi-resource-claims partial-deny e2e test"

@@ -1,0 +1,36 @@
+---
+# ServiceAccount used by k6 test runner pods to talk to the Kubernetes
+# apiserver (for namespace creation) and the aggregated quota apiserver
+# (for definition/grant/claim/bucket/policy CRUD).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quota-k6-runner
+  namespace: quota-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: quota-k6-runner
+rules:
+  # Full access to quota.miloapis.com resources
+  - apiGroups: ["quota.miloapis.com"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  # Namespace create/get/delete for tenant provisioning
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "delete", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: quota-k6-runner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: quota-k6-runner
+subjects:
+  - kind: ServiceAccount
+    name: quota-k6-runner
+    namespace: quota-system

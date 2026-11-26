@@ -1,0 +1,17 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: pre-created-test-org-grant-1
+  namespace: quota-e2e-pre-created
+spec:
+  consumerRef:
+    kind: Namespace
+    apiGroup: ""
+    name: quota-e2e-pre-created
+  allowances:
+    - resourceType: "pre-created-test/projects-per-org"
+      buckets:
+        - amount: 3
+    - resourceType: "pre-created-test/cpu-per-org"
+      buckets:
+        - amount: 4000  # 4 cores in millicores

@@ -1,0 +1,15 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaDefinition
+metadata:
+  name: test-invalid-enum
+spec:
+  consumerType:
+    apiGroup: ""
+    kind: Namespace
+  # Invalid type - must be Entity or Allocation
+  type: "InvalidType"
+  resourceType: "test.validation.datumapis.com/resources"
+  description: "Invalid enum test"
+  baseUnit: "unit"
+  displayUnit: "units"
+  unitConversionFactor: 1

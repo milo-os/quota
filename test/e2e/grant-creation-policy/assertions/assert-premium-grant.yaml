@@ -1,0 +1,25 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaGrant
+metadata:
+  name: auto-grant-premium-test-org
+  namespace: premium-test-org
+  labels:
+    quota.miloapis.com/auto-created: "true"
+    quota.miloapis.com/policy: "test-organization-grant-policy"
+    test.miloapis.com/scenario: "grant-creation-policy"
+  annotations:
+    quota.miloapis.com/description: "Auto-generated grant for premium-test-org"
+  ownerReferences:
+    - apiVersion: v1
+      kind: Namespace
+      name: premium-test-org
+      controller: true
+spec:
+  consumerRef:
+    kind: Namespace
+    name: premium-test-org
+  allowances:
+    - resourceType: "test.grantpolicy.miloapis.com/projects"
+      buckets:
+        # Standard tier should get 5 projects (static amount)
+        - amount: 5

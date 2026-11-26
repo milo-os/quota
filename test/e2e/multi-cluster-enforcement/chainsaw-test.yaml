@@ -1,0 +1,232 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: multi-cluster-enforcement
+spec:
+  description: |
+    Tests quota system for Secrets claimed by namespace-scoped consumers.
+
+    Validates: GrantCreationPolicy creates grants for namespaces, ClaimCreationPolicy creates claims
+    for Secrets, quota enforced per namespace.
+
+  steps:
+    - name: setup-resource-registration
+      description: Register unique resource type for secrets claimed by Namespaces
+      try:
+        - apply:
+            file: 01-resource-registration.yaml
+        - wait:
+            apiVersion: quota.miloapis.com/v1alpha1
+            kind: QuotaDefinition
+            name: mc-test-secrets-per-project
+            timeout: 30s
+            for:
+              condition:
+                name: Active
+                value: 'True'
+
+    - name: setup-grant-creation-policy
+      description: Create GrantCreationPolicy to grant secret quota to namespaces
+      try:
+        - apply:
+            file: 02-grant-creation-policy.yaml
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: GrantCreationPolicy
+              metadata:
+                name: mc-test-project-secret-grant-policy
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+
+    - name: setup-parent-namespace
+      description: Create parent tenant namespace
+      try:
+        - apply:
+            file: 03-test-namespace.yaml
+        - wait:
+            apiVersion: v1
+            kind: Namespace
+            name: mc-test-parent
+            timeout: 30s
+            for:
+              jsonPath:
+                path: '{.status.phase}'
+                value: Active
+
+    - name: create-project-1
+      description: Create consumer namespace that triggers grant creation
+      try:
+        - apply:
+            file: test-data/project-1.yaml
+        - wait:
+            apiVersion: v1
+            kind: Namespace
+            name: mc-test-project-1
+            timeout: 30s
+            for:
+              jsonPath:
+                path: '{.status.phase}'
+                value: Active
+
+    - name: verify-grant-for-project-1
+      description: Confirm grant is created for the consumer namespace
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaGrant
+              metadata:
+                name: auto-grant-mc-test-project-1
+                namespace: mc-test-project-1
+              status:
+                (conditions[?type == 'Active']):
+                  - status: "True"
+
+    - name: verify-bucket-pre-created
+      description: Verify QuotaBucket is pre-created when grant becomes active
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaBucket
+              metadata:
+                namespace: quota-system
+                labels:
+                  quota.miloapis.com/consumer-kind: Namespace
+                  quota.miloapis.com/consumer-name: mc-test-project-1
+              status:
+                limit: 5
+                allocated: 0
+                available: 5
+
+    - name: setup-claim-creation-policy
+      description: Register ClaimCreationPolicy for Secrets
+      try:
+        - apply:
+            file: 04-claim-creation-policy.yaml
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: ClaimCreationPolicy
+              metadata:
+                name: mc-test-secret-claim-policy
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: "True"
+
+    - name: create-secret-1-in-project-1
+      description: Create secret in consumer namespace
+      try:
+        - apply:
+            file: test-data/secret-1.yaml
+
+    - name: verify-claim-for-secret-1
+      description: Confirm resource claim is created for secret
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaClaim
+              metadata:
+                namespace: mc-test-project-1
+                labels:
+                  test.miloapis.com/quota: multicluster
+              status:
+                (conditions[?type == 'Granted']):
+                  - status: "True"
+
+    - name: verify-bucket-usage-1-of-5
+      description: Verify bucket shows 1 secret allocated
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaBucket
+              metadata:
+                namespace: quota-system
+              status:
+                limit: 5
+                allocated: 1
+                available: 4
+
+    - name: create-secret-2-in-project-1
+      description: Create second secret in consumer namespace
+      try:
+        - apply:
+            file: test-data/secret-2.yaml
+
+    - name: verify-claim-for-secret-2
+      description: Verify second claim created and granted
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaClaim
+              metadata:
+                namespace: mc-test-project-1
+              status:
+                (conditions[?type == 'Granted']):
+                  - status: "True"
+
+    - name: verify-bucket-usage-2-of-5
+      description: Verify bucket shows 2 secrets allocated
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaBucket
+              metadata:
+                namespace: quota-system
+              status:
+                limit: 5
+                allocated: 2
+                available: 3
+
+    - name: delete-secret-1
+      description: Delete first secret to free quota
+      try:
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Secret
+              name: mc-test-secret-1
+              namespace: mc-test-project-1
+
+    - name: verify-bucket-usage-after-deletion
+      description: Verify bucket shows quota freed after deletion
+      try:
+        - assert:
+            timeout: 60s
+            resource:
+              apiVersion: quota.miloapis.com/v1alpha1
+              kind: QuotaBucket
+              metadata:
+                namespace: quota-system
+              status:
+                limit: 5
+                allocated: 1
+                available: 4
+
+    - name: cleanup-test-namespaces
+      description: Clean up the test namespaces
+      try:
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: mc-test-project-1
+        - delete:
+            ref:
+              apiVersion: v1
+              kind: Namespace
+              name: mc-test-parent

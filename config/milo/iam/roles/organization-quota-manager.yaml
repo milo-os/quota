@@ -1,0 +1,34 @@
+apiVersion: iam.miloapis.com/v1alpha1
+kind: Role
+metadata:
+  name: quota.miloapis.com-organization-quota-manager
+  namespace: milo-system
+  annotations:
+    kubernetes.io/display-name: Organization Quota Manager
+    kubernetes.io/description: View quota usage, grants, and claims across the organization
+  labels:
+    quota.miloapis.com/role-type: organization-manager
+    quota.miloapis.com/service: quota
+    quota.miloapis.com/scope: organization
+spec:
+  launchStage: Beta
+  includedPermissions:
+    # QuotaDefinition read permissions (to understand available resource types)
+    - quota.miloapis.com/quotadefinitions.get
+    - quota.miloapis.com/quotadefinitions.list
+    - quota.miloapis.com/quotadefinitions.watch
+
+    # QuotaGrant read permissions (to view grants affecting their organization)
+    - quota.miloapis.com/quotagrants.get
+    - quota.miloapis.com/quotagrants.list
+    - quota.miloapis.com/quotagrants.watch
+
+    # QuotaClaim read permissions (to view claims for their organization)
+    - quota.miloapis.com/quotaclaims.get
+    - quota.miloapis.com/quotaclaims.list
+    - quota.miloapis.com/quotaclaims.watch
+
+    # QuotaBucket read permissions (to monitor quota usage)
+    - quota.miloapis.com/quotabuckets.get
+    - quota.miloapis.com/quotabuckets.list
+    - quota.miloapis.com/quotabuckets.watch

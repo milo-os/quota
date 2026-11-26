@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quota-e2e-pre-created
+  annotations:
+    kubernetes.io/display-name: "Pre-Created Buckets Test Namespace"
+    kubernetes.io/description: "Namespace for testing pre-created allowance buckets"
+  labels:
+    test.miloapis.com/quota: "pre-created-buckets"
+    test.miloapis.com/scenario: "bucket-pre-creation"
+    quota.miloapis.com/test-tier: "standard"

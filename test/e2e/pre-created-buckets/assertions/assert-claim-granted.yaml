@@ -1,0 +1,22 @@
+apiVersion: quota.miloapis.com/v1alpha1
+kind: QuotaClaim
+metadata:
+  name: pre-created-test-project-claim
+  namespace: quota-e2e-pre-created
+spec:
+  consumerRef:
+    kind: Namespace
+    name: quota-e2e-pre-created
+  requests:
+    - resourceType: "pre-created-test/projects-per-org"
+      amount: 1
+status:
+  conditions:
+    - type: Granted
+      status: "True"
+      reason: QuotaAvailable
+  allocations:
+    - resourceType: "pre-created-test/projects-per-org"
+      status: Granted
+      allocatedAmount: 1
+      (allocatingBucket != null): true

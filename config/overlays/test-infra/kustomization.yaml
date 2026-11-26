@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: quota-system
+
+# Base resources (API server, service, RBAC, etc.)
+resources:
+  - ../../base
+
+components:
+  - ../../components/namespace
+  - ../../components/api-registration
+  - ../../components/cert-manager-ca
+  - ../../components/etcd                   # etcd for quota storage
+  - ../../components/nats-streams           # NATS JetStream streams and consumers
+  - ../../components/observability          # ServiceMonitors
+  - ../../components/test-infra-access
+
+# Image overrides for test-infra environment
+images:
+  - name: ghcr.io/datum-cloud/quota
+    newName: ghcr.io/datum-cloud/quota
+    newTag: dev
+
+# Patches specific to test-infra environment
+patches:
+  - path: patches/deployment-patch.yaml
+
+labels:
+  - includeSelectors: false
+    includeTemplates: true
+    pairs:
+      environment: test-infra
