@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -98,7 +98,7 @@ func newGrantController(t *testing.T, objs ...client.Object) (*GrantCreationCont
 		fakeMCManager{local: fakeLocalManager{c: c}},
 		testScheme(t),
 		engine.NewTemplateEngine(celEngine, logrDiscard()),
-		celEngine, nil, record.NewFakeRecorder(100), im)
+		celEngine, nil, events.NewFakeRecorder(100), im)
 	return r, c, im
 }
 

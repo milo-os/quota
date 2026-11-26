@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/endpoints/request"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,7 +35,7 @@ type ClaimCreationController struct {
 	Manager        mcmanager.Manager
 	TemplateEngine engine.TemplateEngine
 	CELEngine      engine.CELEngine
-	EventRecorder  record.EventRecorder
+	EventRecorder  events.EventRecorder
 
 	informerManager informer.Manager
 	logger          logr.Logger
@@ -73,7 +73,7 @@ func NewClaimCreationController(
 	scheme *runtime.Scheme,
 	templateEngine engine.TemplateEngine,
 	celEngine engine.CELEngine,
-	eventRecorder record.EventRecorder,
+	eventRecorder events.EventRecorder,
 	informerManager informer.Manager,
 ) *ClaimCreationController {
 	logger := ctrl.Log.WithName("claim-creation")
@@ -128,7 +128,7 @@ func (r *ClaimCreationController) processTriggerResource(obj *unstructured.Unstr
 
 	if err := r.processPolicy(ctx, policy, obj); err != nil {
 		logger.Error(err, "Failed to process policy")
-		r.EventRecorder.Eventf(obj, "Warning", "PolicyProcessingFailed",
+		r.EventRecorder.Eventf(obj, nil, "Warning", "PolicyProcessingFailed", "ProcessPolicy",
 			"Failed to process claim creation policy %s: %v", policy.Name, err)
 	}
 }
@@ -400,7 +400,7 @@ func (r *ClaimCreationController) createOrUpdateClaim(
 		return fmt.Errorf("failed to create claim: %w", err)
 	}
 
-	r.EventRecorder.Eventf(triggerObj, "Normal", "ClaimCreated",
+	r.EventRecorder.Eventf(triggerObj, nil, "Normal", "ClaimCreated", "CreateClaim",
 		"Created QuotaClaim %s/%s from policy %s", claim.Namespace, claim.Name, policy.Name)
 	return nil
 }
@@ -505,7 +505,7 @@ func (r *ClaimCreationController) cleanupClaim(
 			return fmt.Errorf("failed to delete claim: %w", err)
 		}
 
-		r.EventRecorder.Eventf(triggerObj, "Normal", "ClaimDeleted",
+		r.EventRecorder.Eventf(triggerObj, nil, "Normal", "ClaimDeleted", "DeleteClaim",
 			"Deleted QuotaClaim %s/%s due to unmet conditions", existingClaim.Namespace, existingClaim.Name)
 	}
 

@@ -157,7 +157,9 @@ jobs:
       - name: Build quota and fetch envtest binaries
         run: |
           CGO_ENABLED=0 go build -o "$RUNNER_TEMP/quota" ./cmd/quota
-          go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3-0.20261012174806-32759fab3119 \
+          # setup-envtest needs a newer Go than go.mod pins, and setup-go
+          # sets GOTOOLCHAIN=local; let this one command fetch its toolchain.
+          GOTOOLCHAIN=auto go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3-0.20261012174806-32759fab3119 \
             use 1.34.x -p path --bin-dir "$RUNNER_TEMP/envtest" > "$RUNNER_TEMP/envtest-path"
           echo "KUBEBUILDER_ASSETS=$(cat "$RUNNER_TEMP/envtest-path")" >> "$GITHUB_ENV"
       - name: Fetch baseline from the last scheduled run on main
@@ -227,7 +229,7 @@ jobs:
       - name: Build quota image
         run: docker build -t "$QUOTA_IMAGE" .
       - name: Bootstrap kind cluster (cert-manager, Flux, Kyverno) and load image
-        uses: datum-cloud/test-infra/.github/actions/kind-bootstrap@v0.6.0
+        uses: datum-cloud/test-infra/.github/actions/kind-bootstrap@v0.7.2
         with:
           cluster_name: test-infra
           images: ghcr.io/datum-cloud/quota:dev

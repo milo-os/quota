@@ -7,7 +7,7 @@ vars:
   QUOTA_IMAGE_TAG: "dev"
   TEST_INFRA_CLUSTER_NAME: "test-infra"
   # Test infra repository configuration
-  TEST_INFRA_REPO_REF: 'v0.6.0'
+  TEST_INFRA_REPO_REF: 'v0.7.2'
 
 includes:
   # Must set TASK_X_REMOTE_TASKFILES=1 to use this feature.

@@ -184,7 +184,7 @@ func SetupQuotaControllers(mgr mcmanager.Manager, dynamicClient dynamic.Interfac
 		templateEngine,
 		celEngine,
 		parentContextResolver,
-		standardMgr.GetEventRecorderFor("grant-creation"),
+		standardMgr.GetEventRecorder("grant-creation"),
 		informerManager,
 	)
 	if err := grantCreationController.SetupWithManager(mgr); err != nil {
@@ -198,7 +198,7 @@ func SetupQuotaControllers(mgr mcmanager.Manager, dynamicClient dynamic.Interfac
 		standardMgr.GetScheme(),
 		templateEngine,
 		celEngine,
-		standardMgr.GetEventRecorderFor("claim-creation"),
+		standardMgr.GetEventRecorder("claim-creation"),
 		informerManager,
 	)
 	if err := claimCreationController.SetupWithManager(mgr); err != nil {

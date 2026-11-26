@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -34,7 +34,7 @@ type GrantCreationController struct {
 	TemplateEngine        engine.TemplateEngine
 	CELEngine             engine.CELEngine
 	ParentContextResolver *ParentContextResolver
-	EventRecorder         record.EventRecorder
+	EventRecorder         events.EventRecorder
 
 	informerManager informer.Manager
 	logger          logr.Logger
@@ -82,7 +82,7 @@ func NewGrantCreationController(
 	templateEngine engine.TemplateEngine,
 	celEngine engine.CELEngine,
 	parentContextResolver *ParentContextResolver,
-	eventRecorder record.EventRecorder,
+	eventRecorder events.EventRecorder,
 	informerManager informer.Manager,
 ) *GrantCreationController {
 	logger := ctrl.Log.WithName("grant-creation")
@@ -143,7 +143,7 @@ func (r *GrantCreationController) processTriggerResource(obj *unstructured.Unstr
 
 	if err := r.processPolicy(ctx, policy, obj); err != nil {
 		logger.Error(err, "Failed to process policy")
-		r.EventRecorder.Eventf(obj, "Warning", "PolicyProcessingFailed",
+		r.EventRecorder.Eventf(obj, nil, "Warning", "PolicyProcessingFailed", "ProcessPolicy",
 			"Failed to process grant creation policy %s: %v", policy.Name, err)
 	}
 }
@@ -379,7 +379,7 @@ func (r *GrantCreationController) createOrUpdateGrant(
 				return fmt.Errorf("failed to create grant: %w", err)
 			}
 
-			r.EventRecorder.Eventf(triggerObj, "Normal", "GrantCreated",
+			r.EventRecorder.Eventf(triggerObj, nil, "Normal", "GrantCreated", "CreateGrant",
 				"Created QuotaGrant %s/%s from policy %s", grant.Namespace, grant.Name, policy.Name)
 
 			return nil
@@ -403,7 +403,7 @@ func (r *GrantCreationController) createOrUpdateGrant(
 		return fmt.Errorf("failed to update grant: %w", err)
 	}
 
-	r.EventRecorder.Eventf(triggerObj, "Normal", "GrantUpdated",
+	r.EventRecorder.Eventf(triggerObj, nil, "Normal", "GrantUpdated", "UpdateGrant",
 		"Updated QuotaGrant %s/%s from policy %s", grant.Namespace, grant.Name, policy.Name)
 
 	return nil
@@ -447,7 +447,7 @@ func (r *GrantCreationController) cleanupGrant(
 	if err := targetClient.Delete(ctx, existingGrant); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete grant: %w", err)
 	}
-	r.EventRecorder.Eventf(triggerObj, "Normal", "GrantDeleted",
+	r.EventRecorder.Eventf(triggerObj, nil, "Normal", "GrantDeleted", "DeleteGrant",
 		"Deleted QuotaGrant %s/%s from policy %s", existingGrant.Namespace, existingGrant.Name, policy.Name)
 	return nil
 }

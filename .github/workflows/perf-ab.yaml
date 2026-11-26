@@ -52,7 +52,9 @@ jobs:
           cd "$RUNNER_TEMP/src-base"
           CGO_ENABLED=0 go build -o "$RUNNER_TEMP/quota-base" ./cmd/quota
           cd "$GITHUB_WORKSPACE"
-          go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3-0.20261012174806-32759fab3119 \
+          # setup-envtest needs a newer Go than go.mod pins, and setup-go
+          # sets GOTOOLCHAIN=local; let this one command fetch its toolchain.
+          GOTOOLCHAIN=auto go run sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.3-0.20261012174806-32759fab3119 \
             use 1.34.x -p path --bin-dir "$RUNNER_TEMP/envtest" > "$RUNNER_TEMP/envtest-path"
           echo "KUBEBUILDER_ASSETS=$(cat "$RUNNER_TEMP/envtest-path")" >> "$GITHUB_ENV"
       - name: Machine

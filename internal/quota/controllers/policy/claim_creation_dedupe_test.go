@@ -7,7 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -86,7 +86,7 @@ func TestCreateOrUpdateClaimDoesNotDoubleCharge(t *testing.T) {
 			scheme := dedupeScheme(t)
 			cache := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.cached...).Build()
 			live := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.live...).Build()
-			r := &ClaimCreationController{Scheme: scheme, EventRecorder: record.NewFakeRecorder(10)}
+			r := &ClaimCreationController{Scheme: scheme, EventRecorder: events.NewFakeRecorder(10)}
 
 			if err := r.createOrUpdateClaim(context.Background(), cache, live, tc.rendered, policy, widgetTrigger()); err != nil {
 				t.Fatalf("createOrUpdateClaim: %v", err)

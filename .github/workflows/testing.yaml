@@ -90,7 +90,7 @@ jobs:
       - name: Build quota image
         run: docker build -t "$QUOTA_IMAGE" .
       - name: Bootstrap kind cluster (cert-manager, Flux, Kyverno) and load image
-        uses: datum-cloud/test-infra/.github/actions/kind-bootstrap@v0.6.0
+        uses: datum-cloud/test-infra/.github/actions/kind-bootstrap@v0.7.2
         with:
           cluster_name: test-infra
           images: ghcr.io/datum-cloud/quota:dev
